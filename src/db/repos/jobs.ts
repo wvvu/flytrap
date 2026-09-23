@@ -1,0 +1,127 @@
+import type { Db } from "../index.js";
+
+export type JobType = "auth" | "parse" | "classify" | "notify" | "rebuild";
+export type JobStatus = "queued" | "running" | "done" | "failed" | "dead";
+
+export interface JobRow {
+  id: string;
+  type: JobType;
+  message_id: string | null;
+  payload: string | null;
+  status: JobStatus;
+  attempts: number;
+  max_attempts: number;
+  run_after: number;
+  locked_at: number | null;
+  locked_by: string | null;
+  last_error: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface EnqueueInput {
+  id: string;
+  type: JobType;
+  messageId?: string | null;
+  payload?: unknown;
+  now: number;
+  runAfter?: number;
+  maxAttempts?: number;
+}
+
+const CLAIM_SQL = `
+UPDATE jobs
+SET status = 'running', locked_at = ?, locked_by = ?, updated_at = ?
+WHERE id = (
+  SELECT id FROM jobs
+  WHERE status = 'queued' AND run_after <= ?
+  ORDER BY created_at ASC
+  LIMIT 1
+)
+RETURNING *
+`;
+
+export function enqueueJob(db: Db, input: EnqueueInput): void {
+  db.prepare(
+    `INSERT INTO jobs (
+      id, type, message_id, payload, status, attempts, max_attempts, run_after, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, 'queued', 0, ?, ?, ?, ?)`,
+  ).run(
+    input.id,
+    input.type,
+    input.messageId ?? null,
+    input.payload === undefined ? null : JSON.stringify(input.payload),
+    input.maxAttempts ?? 5,
+    input.runAfter ?? input.now,
+    input.now,
+    input.now,
+  );
+}
+
+/** One statement. Two workers cannot receive the same row. */
+export function claimJob(db: Db, workerId: string, now: number): JobRow | undefined {
+  return db.prepare(CLAIM_SQL).get(now, workerId, now, now) as JobRow | undefined;
+}
+
+export function completeJob(db: Db, id: string, now: number): void {
+  db.prepare(
+    `UPDATE jobs
+     SET status = 'done', locked_at = NULL, locked_by = NULL, updated_at = ?
+     WHERE id = ? AND status = 'running'`,
+  ).run(now, id);
+}
+
+export function failJob(db: Db, id: string, error: string, now: number): "queued" | "dead" {
+  const current = db.prepare("SELECT attempts, max_attempts FROM jobs WHERE id = ?").get(id) as
+    | { attempts: number; max_attempts: number }
+    | undefined;
+  if (!current) throw new Error("job not found");
+  const attempts = current.attempts + 1;
+  const dead = attempts >= current.max_attempts;
+  db.prepare(
+    `UPDATE jobs
+     SET attempts = ?, status = ?, run_after = ?, locked_at = NULL, locked_by = NULL,
+         last_error = ?, updated_at = ?
+     WHERE id = ?`,
+  ).run(attempts, dead ? "dead" : "queued", dead ? now : now + backoffMs(attempts), error.slice(0, 500), now, id);
+  return dead ? "dead" : "queued";
+}
+
+/** Startup crash recovery. Every running row is stale: this process has not claimed one yet. */
+export function recoverRunning(db: Db, now: number): number {
+  const result = db
+    .prepare(
+      `UPDATE jobs
+       SET status = 'queued', locked_at = NULL, locked_by = NULL, updated_at = ?
+       WHERE status = 'running'`,
+    )
+    .run(now);
+  return result.changes;
+}
+
+export function requeueJob(db: Db, id: string, workerId: string, now: number): boolean {
+  const result = db
+    .prepare(
+      `UPDATE jobs
+       SET status = 'queued', locked_at = NULL, locked_by = NULL, updated_at = ?
+       WHERE id = ? AND status = 'running' AND locked_by = ?`,
+    )
+    .run(now, id, workerId);
+  return result.changes === 1;
+}
+
+export function hasOpenJob(db: Db, messageId: string, type: JobType): boolean {
+  const row = db
+    .prepare(
+      `SELECT 1 AS ok FROM jobs
+       WHERE message_id = ? AND type = ? AND status IN ('queued', 'running')
+       LIMIT 1`,
+    )
+    .get(messageId, type);
+  return Boolean(row);
+}
+
+export function backoffMs(attempts: number): number {
+  const shift = Math.min(Math.max(attempts, 1), 10);
+  return Math.min(1000 * 2 ** shift, 15 * 60 * 1000);
+}

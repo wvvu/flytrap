@@ -1,1 +1,51 @@
-architecture/
+# Dependencies
+node_modules/
+
+# Build & compiled output
+dist/
+*.tsbuildinfo
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Data & storage (raw emails, SQLite databases, attachments)
+data/
+storage/
+
+# SQLite & databases
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+
+# TLS certificates & private keys (SMTP TLS / DKIM)
+certs/
+*.pem
+*.key
+*.crt
+
+# Test & coverage
+coverage/
+.nyc_output/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Temporary files & OS metadata
+tmp/
+temp/
+*.tmp
+.DS_Store
+Thumbs.db
+
+# IDE & Editor
+.idea/
+.vscode/
+*.swp
+*.swo
