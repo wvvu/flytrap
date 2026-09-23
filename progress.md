@@ -88,17 +88,17 @@
 - **验证**: `test/classify.test.ts` 测试用例通过，异常日志不泄露 Token
 
 ## Step 12 — Docker
-- [ ] `Dockerfile`: 多阶段构建，非 root
-- [ ] `docker-compose.yml`: smtp 2525 / api 127.0.0.1
-- **验证**: `docker compose up` → healthz 200
+- [x] `Dockerfile`: 多阶段构建，非 root（`USER node`）
+- [x] `docker-compose.yml`: smtp `2525:2525` / api `127.0.0.1:8080:8080` / 卷 `mail-data`
+- **验证**: 本机没有 docker CLI，未跑 `docker compose up`。镜像内 healthcheck 打 `/healthz` 并探测 SMTP 2525。
 
 ## Step 13 — Rebuild
-- [ ] `main.ts --rebuild`: 扫 raw/ 重建 SQLite
-- **验证**: 删 DB → rebuild → sha256 集合与 raw/ 一致
+- [x] `main.ts --rebuild`: 扫 raw/ 重建 SQLite，`ai_result IS NULL` 的重入队 auth
+- **验证**: `npm test` — `deleting the database and rebuilding restores the raw sha256 set`、`main --rebuild exits after the sha256 set matches raw`
 
 ## Step 14 — 最小 UI
-- [ ] 静态页 fetch /v1/*
-- **验证**: 浏览器打开 → 邮件列表可见
+- [x] `src/api/public/` 静态页 fetch `/v1/*`，Fastify 托管 `/`、`/app.js`、`/app.css`
+- **验证**: `test/ui.test.ts` 通过（未登录列表 401，`GET /` 返回面板）。本机无浏览器，未做点击走查。
 
 ---
 
@@ -107,4 +107,5 @@
 | 日期 | Step | Commit | 备注 |
 |------|------|--------|------|
 | 2026-09-23 | 1-11 | feat(core) (step 1-11) | 核心业务全链路：配置/存储/SMTP/Worker/认证/解析/AI分类/通知/本机API/完整测试 (35 项测试全绿) |
+| 2026-09-23 | 12-14 | feat(core) (step 12-14) | Docker 多阶段非 root、`--rebuild`、静态面板。`npm test` 39 项全绿，`npm run typecheck` 通过。本机无 docker / 浏览器 |
 

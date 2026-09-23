@@ -21,6 +21,7 @@ import { readRaw } from "../ingest/read-raw.js";
 import { PathEscapeError, resolveInside } from "../paths.js";
 import { actorName, decodeCursor, encodeCursor, errorName, HttpError, iso, parseJson, publicError, safeMime } from "./http.js";
 import { credentialsMatch } from "./password.js";
+import { isPanelAsset, registerPanel } from "./static.js";
 
 declare module "fastify" {
   interface Session {
@@ -289,6 +290,7 @@ export async function buildApi(options: ApiOptions): Promise<FastifyInstance> {
     return reply.code(201).send({ ok: true });
   });
 
+  registerPanel(app);
   return app;
 }
 
@@ -302,7 +304,7 @@ export async function startApi(options: ApiOptions): Promise<RunningApi> {
 
 function isPublic(url: string): boolean {
   const path = url.split("?")[0] ?? url;
-  return path === "/healthz" || path === "/v1/login" || path === "/v1/csrf";
+  return path === "/healthz" || path === "/v1/login" || path === "/v1/csrf" || isPanelAsset(path);
 }
 
 function messageId(request: FastifyRequest): string {

@@ -1,0 +1,41 @@
+# One process, three roles. Secrets stay in .env and are not baked into the image.
+# Copy .env.example to .env and set API_PASSWORD plus SESSION_SECRET (32+ bytes).
+# CLASSIFIER=fake boots without an LLM. openai-compat also needs the three OPENAI_* keys.
+# Inside the container the API listens on 0.0.0.0 so the published port can reach it.
+# On the host it is bound to loopback only. SMTP is published on 2525.
+# The process is unprivileged. Map host port 25 onto 2525 with iptables if you need it.
+# The session cookie is Secure when NODE_ENV=production, so the panel needs HTTPS
+# in front of this port. /healthz does not.
+
+name: flytrap
+
+services:
+  flytrap:
+    build: .
+    image: flytrap:0.2.0
+    init: true
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: production
+      MAIL_DATA_DIR: /srv/mail/data
+      API_HOST: 0.0.0.0
+      API_PORT: "8080"
+      SMTP_HOST: 0.0.0.0
+      SMTP_PORT: "2525"
+    ports:
+      - "2525:2525"
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - mail-data:/srv/mail/data
+    healthcheck:
+      test: ["CMD", "node", "scripts/healthcheck.mjs"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  mail-data:

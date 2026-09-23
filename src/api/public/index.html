@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Flytrap</title>
+    <link rel="stylesheet" href="/app.css">
+  </head>
+  <body>
+    <header class="top">
+      <div>
+        <p class="mark">Flytrap</p>
+        <h1>收件</h1>
+      </div>
+      <button type="button" id="logout" hidden>退出</button>
+    </header>
+    <main>
+      <section id="login">
+        <form id="login-form">
+          <label>用户名
+            <input id="username" name="username" autocomplete="username" maxlength="128" required>
+          </label>
+          <label>口令
+            <input id="password" name="password" type="password" autocomplete="current-password" maxlength="512" required>
+          </label>
+          <button type="submit">登录</button>
+          <p id="login-error" role="alert"></p>
+        </form>
+      </section>
+      <section id="mail" hidden>
+        <form id="filters" class="filters">
+          <label>标签
+            <select id="label"></select>
+          </label>
+          <label>状态
+            <select id="status"></select>
+          </label>
+          <label>搜索
+            <input id="q" type="search" maxlength="200" placeholder="主题、发件人、Message-ID">
+          </label>
+          <button type="submit">筛选</button>
+        </form>
+        <p id="notice" role="status"></p>
+        <div id="list"></div>
+        <button type="button" id="more" hidden>更多</button>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

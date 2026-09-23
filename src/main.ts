@@ -12,10 +12,12 @@ import { createTelegramNotifier } from "./notify/telegram.js";
 import { createWebhookNotifier } from "./notify/webhook.js";
 import type { Notifier } from "./notify/types.js";
 import { startApi } from "./api/app.js";
+import { rebuildFromRaw } from "./ingest/rebuild.js";
 import { startSmtp, type RunningSmtp } from "./smtp/server.js";
 import { startWorker } from "./worker/loop.js";
 
 // `--check` validates the environment, migrates, and exits.
+// `--rebuild` scans raw/ into SQLite, then exits.
 
 const bootLog = createLogger(process.env.LOG_LEVEL?.trim() || "info");
 
@@ -31,8 +33,8 @@ const config: Config = (() => {
 
 const log = createLogger(config.logLevel);
 
-if (process.argv.includes("--rebuild") || process.argv.includes("--import-history")) {
-  log.error("that command is not implemented yet");
+if (process.argv.includes("--import-history")) {
+  log.error("--import-history is not implemented yet");
   process.exit(1);
 }
 
@@ -41,33 +43,69 @@ const db = openDatabase(dbFile(config.mailDataDir));
 const applied = migrate(db, migrationsDir());
 log.info({ applied, roles: config.roles }, "database ready");
 
-if (process.argv.includes("--check")) {
+if (process.argv.includes("--rebuild")) {
+  void rebuildCommand();
+} else if (process.argv.includes("--check")) {
   db.close();
   process.exit(0);
+} else {
+  void serve();
 }
 
-const stops: Array<() => Promise<void>> = [];
-let shuttingDown = false;
-
-async function shutdown(signal: string): Promise<void> {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  log.info({ signal }, "shutting down");
-  for (const stop of stops) {
+async function rebuildCommand(): Promise<void> {
+  try {
+    const codec = await loadCodec(config.compress, log);
+    const report = await rebuildFromRaw({ db, dataDir: config.mailDataDir, codec });
+    log.info(report, "rebuild complete");
+    db.close();
+    process.exit(0);
+  } catch (err) {
+    log.fatal({ err: err instanceof Error ? err.message : "rebuild failed" }, "rebuild failed");
     try {
-      await stop();
-    } catch (err) {
-      log.error({ err: err instanceof Error ? err.message : "stop failed" }, "shutdown step failed");
+      db.close();
+    } catch {
+      // already closed
     }
+    process.exit(1);
   }
-  db.close();
-  process.exit(0);
 }
 
-process.on("SIGINT", () => void shutdown("SIGINT"));
-process.on("SIGTERM", () => void shutdown("SIGTERM"));
+async function serve(): Promise<void> {
+  const stops: Array<() => Promise<void>> = [];
+  let shuttingDown = false;
 
-async function boot(): Promise<void> {
+  async function shutdown(signal: string): Promise<void> {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    log.info({ signal }, "shutting down");
+    for (const stop of stops) {
+      try {
+        await stop();
+      } catch (err) {
+        log.error({ err: err instanceof Error ? err.message : "stop failed" }, "shutdown step failed");
+      }
+    }
+    db.close();
+    process.exit(0);
+  }
+
+  process.on("SIGINT", () => void shutdown("SIGINT"));
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+
+  try {
+    await boot(stops);
+  } catch (err) {
+    log.fatal({ err: err instanceof Error ? err.message : "boot failed" }, "refusing to start");
+    try {
+      db.close();
+    } catch {
+      // already closed
+    }
+    process.exit(1);
+  }
+}
+
+async function boot(stops: Array<() => Promise<void>>): Promise<void> {
   const needsCodec = config.roles.includes("smtp") || config.roles.includes("worker") || config.roles.includes("api");
   const codec = needsCodec ? await loadCodec(config.compress, log) : undefined;
   if (config.roles.includes("smtp")) {
@@ -123,13 +161,3 @@ async function boot(): Promise<void> {
     db.close();
   }
 }
-
-boot().catch((err: unknown) => {
-  log.fatal({ err: err instanceof Error ? err.message : "boot failed" }, "refusing to start");
-  try {
-    db.close();
-  } catch {
-    // already closed
-  }
-  process.exit(1);
-});
