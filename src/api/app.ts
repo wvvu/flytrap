@@ -64,10 +64,10 @@ export async function buildApi(options: ApiOptions): Promise<FastifyInstance> {
   const now = options.now ?? Date.now;
   const app = Fastify(
     typeof options.log === "boolean"
-      ? { logger: options.log, trustProxy: false }
+      ? { logger: options.log, trustProxy: true }
       : options.log
-        ? { loggerInstance: options.log, trustProxy: false }
-        : { logger: false, trustProxy: false }
+        ? { loggerInstance: options.log, trustProxy: true }
+        : { logger: false, trustProxy: true }
   );
   const { config, db, codec } = options;
 
