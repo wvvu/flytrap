@@ -5,7 +5,7 @@ import csrf from "@fastify/csrf-protection";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import session from "@fastify/session";
-import Fastify, { type FastifyInstance, type FastifyRequest, type FastifyServerOptions } from "fastify";
+import Fastify, { type FastifyBaseLogger, type FastifyInstance, type FastifyRequest, type FastifyServerOptions } from "fastify";
 import { z } from "zod";
 import { LABELS } from "../ai/types.js";
 import type { Config } from "../config.js";
@@ -51,7 +51,7 @@ export interface ApiOptions {
   config: Config;
   db: Db;
   codec: Codec;
-  log?: FastifyServerOptions["logger"];
+  log?: FastifyBaseLogger | boolean;
   now?: () => number;
 }
 
@@ -62,10 +62,13 @@ export interface RunningApi {
 
 export async function buildApi(options: ApiOptions): Promise<FastifyInstance> {
   const now = options.now ?? Date.now;
-  const app = Fastify({
-    logger: options.log ?? false,
-    trustProxy: false,
-  });
+  const app = Fastify(
+    typeof options.log === "boolean"
+      ? { logger: options.log, trustProxy: false }
+      : options.log
+        ? { loggerInstance: options.log, trustProxy: false }
+        : { logger: false, trustProxy: false }
+  );
   const { config, db, codec } = options;
 
   await app.register(helmet, { contentSecurityPolicy: false });
