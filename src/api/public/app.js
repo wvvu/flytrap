@@ -491,10 +491,10 @@ async function selectMail(id) {
 
   try {
     const detail = await request("/v1/messages/" + encodeURIComponent(id));
-    detailSubject.textContent = detail.subject || "(无主题)";
-    detailFrom.textContent = detail.from || detail.envelopeFrom || "未知发件人";
-    detailTo.textContent = Array.isArray(detail.envelopeTo) ? detail.envelopeTo.join(", ") : detail.envelopeTo || "";
-    detailTime.textContent = formatFullTime(detail.receivedAt);
+    if (detailSubject) detailSubject.textContent = detail.subject || "(无主题)";
+    if (detailFrom) detailFrom.textContent = detail.from || detail.envelopeFrom || "未知发件人";
+    if (detailTo) detailTo.textContent = Array.isArray(detail.envelopeTo) ? detail.envelopeTo.join(", ") : detail.envelopeTo || "";
+    if (detailTime) detailTime.textContent = formatFullTime(detail.receivedAt);
 
     const label = detail.aiResult?.label || detail.label || "gray";
     if (detailVerdictSelect) {
@@ -609,8 +609,9 @@ async function selectMail(id) {
     // 加载 HTML
     void loadMailHtml(id);
   } catch (err) {
-    detailSubject.textContent = "无法加载邮件详情";
-    detailSummary.textContent = explain(err);
+    console.error("selectMail error:", err);
+    if (detailSubject) detailSubject.textContent = "无法加载邮件详情";
+    if (detailSummary) detailSummary.textContent = explain(err);
   }
 }
 
