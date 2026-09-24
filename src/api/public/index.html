@@ -69,15 +69,6 @@
           <div class="stream-title-row">
             <h2 id="stream-title">收件流</h2>
             <div class="stream-actions">
-              <select id="filter-select" class="filter-select" title="按研判分类过滤">
-                <option value="legit" selected>📬 正常邮件</option>
-                <option value="">🌐 全部邮件</option>
-                <option value="phish">🚨 钓鱼欺诈</option>
-                <option value="malware">☣️ 恶意攻击</option>
-                <option value="spam">🗑️ 垃圾邮件</option>
-                <option value="unsolicited-admin">📢 推广营销</option>
-                <option value="gray">❓ 未知/可疑</option>
-              </select>
               <button type="button" id="btn-refresh" class="btn-icon" title="刷新列表 (R)">↻</button>
             </div>
           </div>
@@ -86,14 +77,16 @@
             <input id="label" type="hidden" value="legit">
             <input id="status" type="hidden" value="">
           </form>
-          <div class="pills-scroll" id="label-pills">
-            <button type="button" class="pill pill-legit active" data-filter-label="legit">正常</button>
-            <button type="button" class="pill" data-filter-label="">全部</button>
-            <button type="button" class="pill pill-phish" data-filter-label="phish">钓鱼</button>
-            <button type="button" class="pill pill-malware" data-filter-label="malware">恶意</button>
-            <button type="button" class="pill pill-spam" data-filter-label="spam">垃圾</button>
-            <button type="button" class="pill pill-promo" data-filter-label="unsolicited-admin">推广</button>
-            <button type="button" class="pill pill-gray" data-filter-label="gray">未知/可疑</button>
+          <div class="stream-filter-bar">
+            <select id="filter-select" class="stream-filter-select" title="按研判分类过滤">
+              <option value="legit" selected>📬 正常邮件</option>
+              <option value="">🌐 全部邮件</option>
+              <option value="phish">🚨 钓鱼欺诈</option>
+              <option value="malware">☣️ 恶意攻击</option>
+              <option value="spam">🗑️ 垃圾邮件</option>
+              <option value="unsolicited-admin">📢 推广营销</option>
+              <option value="gray">❓ 未知/可疑</option>
+            </select>
           </div>
         </div>
 
@@ -152,9 +145,20 @@
               <div class="meta-grid">
                 <div class="meta-item"><span class="meta-label">发件人：</span><span id="detail-from" class="meta-val"></span></div>
                 <div class="meta-item"><span class="meta-label">收件人：</span><span id="detail-to" class="meta-val"></span></div>
-                <div class="meta-item"><span class="meta-label">时间：</span><span id="detail-time" class="meta-val"></span></div>
-                <div class="meta-item"><span class="meta-label">威胁研判：</span><span id="detail-verdict" class="verdict-tag">未分类</span></div>
-              </div>
+                <div class="meta-item meta-item-verdict">
+                  <span class="meta-label">威胁研判：</span>
+                  <div class="verdict-control-group">
+                    <select id="detail-verdict-select" class="verdict-select" title="手动修正研判类别">
+                      <option value="legit">📬 正常</option>
+                      <option value="unsolicited-admin">📢 推广</option>
+                      <option value="spam">🗑️ 垃圾</option>
+                      <option value="phish">🚨 钓鱼</option>
+                      <option value="malware">☣️ 恶意</option>
+                      <option value="gray">❓ 未知/可疑</option>
+                    </select>
+                    <span id="detail-model-verdict" class="model-verdict-hint"></span>
+                  </div>
+                </div>
               <!-- Infomaniak 风格安全提示栏 -->
               <div id="security-banner" class="security-banner">
                 <span class="sec-icon">🛡️</span>

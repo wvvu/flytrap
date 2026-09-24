@@ -326,21 +326,39 @@ input:focus, select:focus, textarea:focus {
   gap: 8px;
 }
 
-.filter-select {
+.stream-filter-bar {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.stream-filter-select {
+  width: 100%;
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   color: var(--text-main);
-  padding: 4px 8px;
-  border-radius: 6px;
-  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   outline: none;
-  transition: border-color 0.15s ease;
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 
-.filter-select:focus {
+.stream-filter-select:hover {
+  border-color: var(--border-default);
+  background: var(--bg-card-hover);
+}
+
+.stream-filter-select:focus {
   border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
+.stream-filter-select option {
+  background: var(--bg-card);
+  color: var(--text-main);
 }
 
 .stream-subtitle {
@@ -528,6 +546,59 @@ input:focus, select:focus, textarea:focus {
 .verdict-tag[data-label="unsolicited-admin"] { background: rgba(168, 85, 247, 0.14); color: #c084fc; }
 .verdict-tag[data-label="legit"] { background: var(--legit-bg); color: var(--legit); }
 .verdict-tag[data-label="gray"], .verdict-tag[data-label="none"] { background: var(--gray-bg); color: var(--gray); }
+
+.meta-item-verdict {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.verdict-control-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.verdict-select {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  outline: none;
+  font-family: var(--font-sans);
+  background: var(--bg-card);
+  color: var(--text-main);
+  transition: all 0.15s ease;
+}
+
+.verdict-select:hover {
+  filter: brightness(1.08);
+}
+
+.verdict-select:focus {
+  box-shadow: 0 0 0 2px var(--primary);
+}
+
+.verdict-select[data-label="phish"] { background: var(--phish-bg); color: var(--phish); border-color: rgba(239, 68, 68, 0.4); }
+.verdict-select[data-label="malware"] { background: var(--malware-bg); color: var(--malware); border-color: rgba(220, 38, 38, 0.4); }
+.verdict-select[data-label="spam"] { background: var(--spam-bg); color: var(--spam); border-color: rgba(245, 158, 11, 0.4); }
+.verdict-select[data-label="unsolicited-admin"] { background: rgba(168, 85, 247, 0.14); color: #c084fc; border-color: rgba(168, 85, 247, 0.4); }
+.verdict-select[data-label="legit"] { background: var(--legit-bg); color: var(--legit); border-color: rgba(16, 185, 129, 0.4); }
+.verdict-select[data-label="gray"], .verdict-select[data-label="none"] { background: var(--gray-bg); color: var(--gray); border-color: var(--border-subtle); }
+
+.verdict-select option {
+  background: var(--bg-card);
+  color: var(--text-main);
+}
+
+.model-verdict-hint {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+}
 
 .pill-promo { color: #c084fc; }
 .pill-promo.active { background: #a855f7 !important; color: #fff !important; border-color: #a855f7 !important; }

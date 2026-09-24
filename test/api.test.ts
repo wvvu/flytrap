@@ -182,6 +182,24 @@ test("the api requires a session, hides paths, and pages the list", async () => 
     assert.equal(items[0]?.notes, "旧面板");
     assert.equal(items[0]?.firstSeen, "2019-01-01T00:00:00.000Z");
 
+    const patchRes = await client.patch(app, "/v1/messages/msg_visible/label", { label: "legit" });
+    assert.equal(patchRes.statusCode, 200);
+    assert.deepEqual(patchRes.json(), {
+      ok: true,
+      id: "msg_visible",
+      label: "legit",
+      originalLabel: "phish",
+      originalConfidence: 0.9,
+    });
+    const updatedDetail = await client.get(app, "/v1/messages/msg_visible");
+    assert.equal(updatedDetail.json().aiResult.label, "legit");
+    assert.equal(updatedDetail.json().aiResult.originalLabel, "phish");
+    assert.equal(updatedDetail.json().aiResult.manualOverride, true);
+    assert.equal(
+      (db.prepare("SELECT action FROM audit_log WHERE action = 'override_label'").get() as { action: string }).action,
+      "override_label",
+    );
+
     const odd = await client.get(app, "/v1/messages/%2e%2e%2f%2e%2e%2fetc%2fpasswd");
     assert.equal(odd.statusCode, 404);
     assert.equal(JSON.stringify(odd.json()).includes("passwd"), false);
@@ -318,6 +336,16 @@ function cookieJar() {
     async post(app: Awaited<ReturnType<typeof buildApi>>, url: string, payload: unknown) {
       const response = await app.inject({
         method: "POST",
+        url,
+        headers: { cookie, "x-csrf-token": token, "content-type": "application/json" },
+        payload,
+      });
+      cookie = mergeCookie(cookie, response.headers["set-cookie"]);
+      return response;
+    },
+    async patch(app: Awaited<ReturnType<typeof buildApi>>, url: string, payload: unknown) {
+      const response = await app.inject({
+        method: "PATCH",
         url,
         headers: { cookie, "x-csrf-token": token, "content-type": "application/json" },
         payload,

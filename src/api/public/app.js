@@ -63,7 +63,8 @@ const detailSubject = document.querySelector("#detail-subject");
 const detailFrom = document.querySelector("#detail-from");
 const detailTo = document.querySelector("#detail-to");
 const detailTime = document.querySelector("#detail-time");
-const detailVerdict = document.querySelector("#detail-verdict");
+const detailVerdictSelect = document.querySelector("#detail-verdict-select");
+const detailModelVerdict = document.querySelector("#detail-model-verdict");
 const detailSummary = document.querySelector("#detail-summary");
 const verdictBar = document.querySelector("#verdict-bar");
 const verdictPercent = document.querySelector("#verdict-percent");
@@ -109,23 +110,41 @@ queryInput?.addEventListener("input", debounce(() => void reloadMessages(), 350)
 
 filterSelect?.addEventListener("change", () => {
   labelInput.value = filterSelect.value;
-  const pills = document.querySelectorAll("#label-pills button[data-filter-label]");
-  pills.forEach((p) => {
-    p.classList.toggle("active", p.getAttribute("data-filter-label") === filterSelect.value);
-  });
   void reloadMessages();
 });
 
-// 标签过滤胶囊点击
-document.querySelector("#label-pills")?.addEventListener("click", (e) => {
-  const target = e.target;
-  if (!target || !target.matches("button[data-filter-label]")) return;
-  for (const btn of document.querySelectorAll("#label-pills button")) btn.classList.remove("active");
-  target.classList.add("active");
-  const val = target.getAttribute("data-filter-label") || "";
-  labelInput.value = val;
-  if (filterSelect) filterSelect.value = val;
-  void reloadMessages();
+detailVerdictSelect?.addEventListener("change", async () => {
+  if (!selectedMailId) return;
+  const newLabel = detailVerdictSelect.value;
+  detailVerdictSelect.disabled = true;
+  try {
+    const res = await request("/v1/messages/" + encodeURIComponent(selectedMailId) + "/label", {
+      method: "PATCH",
+      body: { label: newLabel },
+    });
+    detailVerdictSelect.dataset.label = newLabel;
+    if (detailModelVerdict) {
+      const origName = LABEL_NAMES[res.originalLabel] || res.originalLabel || "未分类";
+      const origConf = typeof res.originalConfidence === "number" ? " " + Math.round(res.originalConfidence * 100) + "%" : "";
+      detailModelVerdict.textContent = `(模型初判: ${origName}${origConf} · 人工修正)`;
+    }
+    const listItem = listEl.querySelector(`.mail-item[data-id="${selectedMailId}"]`);
+    if (listItem) {
+      const tag = listItem.querySelector(".verdict-tag");
+      if (tag) {
+        tag.dataset.label = newLabel;
+        tag.textContent = (LABEL_NAMES[newLabel] || newLabel) + " (人工修正)";
+      }
+    }
+    noticeEl.textContent = "研判已手动修正为: " + (LABEL_NAMES[newLabel] || newLabel);
+    setTimeout(() => {
+      if (noticeEl.textContent.startsWith("研判已手动修正")) noticeEl.textContent = "";
+    }, 3000);
+  } catch (err) {
+    noticeEl.textContent = "修改研判失败: " + explain(err);
+  } finally {
+    detailVerdictSelect.disabled = false;
+  }
 });
 
 moreBtn.addEventListener("click", () => void loadMessagesPage(false));
@@ -439,7 +458,9 @@ function createMailListItem(item) {
   const tag = document.createElement("span");
   tag.className = "verdict-tag";
   tag.dataset.label = item.label || "none";
-  const confText = typeof item.confidence === "number" ? ` ${Math.round(item.confidence * 100)}%` : "";
+  const confText = item.manualOverride
+    ? " (人工修正)"
+    : (typeof item.confidence === "number" ? ` ${Math.round(item.confidence * 100)}%` : "");
   tag.textContent = (LABEL_NAMES[item.label] || item.label || "未分类") + confText;
 
   line3.append(snippet, tag);
@@ -475,10 +496,21 @@ async function selectMail(id) {
     detailTo.textContent = Array.isArray(detail.envelopeTo) ? detail.envelopeTo.join(", ") : detail.envelopeTo || "";
     detailTime.textContent = formatFullTime(detail.receivedAt);
 
-    const label = detail.aiResult?.label || detail.label || "none";
-    detailVerdict.dataset.label = label;
+    const label = detail.aiResult?.label || detail.label || "gray";
+    if (detailVerdictSelect) {
+      detailVerdictSelect.value = label;
+      detailVerdictSelect.dataset.label = label;
+    }
     const confidence = typeof detail.aiResult?.confidence === "number" ? detail.aiResult.confidence : 0;
-    detailVerdict.textContent = (LABEL_NAMES[label] || label || "未分类") + ` (${Math.round(confidence * 100)}%)`;
+    if (detailModelVerdict) {
+      if (detail.aiResult?.manualOverride) {
+        const origName = LABEL_NAMES[detail.aiResult.originalLabel] || detail.aiResult.originalLabel || "未分类";
+        const origConf = typeof detail.aiResult.originalConfidence === "number" ? ` ${Math.round(detail.aiResult.originalConfidence * 100)}%` : "";
+        detailModelVerdict.textContent = `(模型初判: ${origName}${origConf} · 人工修正)`;
+      } else {
+        detailModelVerdict.textContent = `(模型判定 ${Math.round(confidence * 100)}%)`;
+      }
+    }
 
     verdictBar.style.width = Math.round(confidence * 100) + "%";
     verdictPercent.textContent = Math.round(confidence * 100) + "%";

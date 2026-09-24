@@ -212,6 +212,52 @@ export async function buildApi(options: ApiOptions): Promise<FastifyInstance> {
     return reply.code(202).send({ queued: true });
   });
 
+  const labelOverrideBody = z.object({
+    label: z.enum(["phish", "malware", "spam", "unsolicited-admin", "legit", "gray"]),
+  }).strict();
+
+  app.patch("/v1/messages/:id/label", async (request, reply) => {
+    const id = messageId(request);
+    const message = requireMessage(db, id);
+    const body = labelOverrideBody.safeParse(request.body);
+    if (!body.success) throw new HttpError(400);
+
+    const existingAi = parseJson(message.ai_result) as Record<string, unknown> | null;
+    const ai = existingAi && typeof existingAi === "object" ? { ...existingAi } : {};
+
+    if (typeof ai.originalLabel !== "string" && typeof ai.label === "string") {
+      ai.originalLabel = ai.label;
+      ai.originalConfidence = ai.confidence;
+    }
+
+    const prevLabel = (ai.label as string) ?? "none";
+    ai.label = body.data.label;
+    ai.manualOverride = true;
+    ai.overrideActor = request.session.user ?? "admin";
+    ai.overrideAt = now();
+
+    const updatedJson = JSON.stringify(ai);
+    db.prepare("UPDATE messages SET ai_result = ?, status = 'classified', updated_at = ? WHERE id = ?")
+      .run(updatedJson, now(), id);
+
+    writeAudit(db, {
+      id: ulid(),
+      at: now(),
+      actor: request.session.user ?? "unknown",
+      action: "override_label",
+      target: id,
+      detail: `from=${prevLabel},to=${body.data.label}`,
+    });
+
+    return reply.send({
+      ok: true,
+      id,
+      label: body.data.label,
+      originalLabel: ai.originalLabel ?? null,
+      originalConfidence: ai.originalConfidence ?? null,
+    });
+  });
+
   app.get("/v1/attachments/:sha256", async (request, reply) => {
     const sha = attachmentId(request);
     const row = findAttachment(db, sha);
@@ -481,6 +527,9 @@ function toListItem(row: ReturnType<typeof listMessages>[number]) {
     confidence: ai.confidence,
     summary: ai.summary,
     tags: ai.tags,
+    manualOverride: ai.manualOverride,
+    originalLabel: ai.originalLabel,
+    originalConfidence: ai.originalConfidence,
   };
 }
 
@@ -513,15 +562,36 @@ function toDetail(db: Db, id: string) {
   };
 }
 
-function aiSummary(raw: string | null): { label: string | null; confidence: number | null; summary: string | null; tags: string[] } {
+function aiSummary(raw: string | null): {
+  label: string | null;
+  confidence: number | null;
+  summary: string | null;
+  tags: string[];
+  manualOverride: boolean;
+  originalLabel: string | null;
+  originalConfidence: number | null;
+} {
   const value = parseJson(raw);
-  if (!value || typeof value !== "object") return { label: null, confidence: null, summary: null, tags: [] };
+  if (!value || typeof value !== "object") {
+    return {
+      label: null,
+      confidence: null,
+      summary: null,
+      tags: [],
+      manualOverride: false,
+      originalLabel: null,
+      originalConfidence: null,
+    };
+  }
   const record = value as Record<string, unknown>;
   return {
     label: typeof record.label === "string" ? record.label : null,
     confidence: typeof record.confidence === "number" ? record.confidence : null,
     summary: typeof record.summary === "string" ? record.summary : null,
     tags: Array.isArray(record.tags) ? record.tags.filter((tag): tag is string => typeof tag === "string") : [],
+    manualOverride: record.manualOverride === true,
+    originalLabel: typeof record.originalLabel === "string" ? record.originalLabel : null,
+    originalConfidence: typeof record.originalConfidence === "number" ? record.originalConfidence : null,
   };
 }
 
