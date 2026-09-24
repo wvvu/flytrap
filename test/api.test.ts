@@ -200,6 +200,40 @@ test("the api requires a session, hides paths, and pages the list", async () => 
       "override_label",
     );
 
+    // Trash tests
+    const trashRes = await client.post(app, "/v1/messages/msg_visible/trash", {});
+    assert.equal(trashRes.statusCode, 200);
+    assert.deepEqual(trashRes.json(), { ok: true, id: "msg_visible", trashed: true });
+
+    // Inbox should not list trashed messages
+    const inboxAfterTrash = await client.get(app, "/v1/messages");
+    assert.equal((inboxAfterTrash.json().items as Array<{ id: string }>).some((m) => m.id === "msg_visible"), false);
+
+    // Trashed list should include msg_visible
+    const trashedList = await client.get(app, "/v1/messages?trashed=true");
+    assert.equal((trashedList.json().items as Array<{ id: string }>)[0]?.id, "msg_visible");
+
+    // Trash count
+    const trashCount = await client.get(app, "/v1/trash/count");
+    assert.equal(trashCount.json().count, 1);
+
+    // Restore message
+    const restoreRes = await client.post(app, "/v1/messages/msg_visible/restore", {});
+    assert.equal(restoreRes.statusCode, 200);
+    assert.deepEqual(restoreRes.json(), { ok: true, id: "msg_visible", trashed: false });
+
+    // Inbox should have msg_visible back
+    const inboxAfterRestore = await client.get(app, "/v1/messages");
+    assert.equal((inboxAfterRestore.json().items as Array<{ id: string }>).some((m) => m.id === "msg_visible"), true);
+
+    // Permanent delete
+    const deleteRes = await client.delete(app, "/v1/messages/msg_visible");
+    assert.equal(deleteRes.statusCode, 200);
+    assert.deepEqual(deleteRes.json(), { ok: true, id: "msg_visible", deleted: true });
+
+    const deletedDetail = await client.get(app, "/v1/messages/msg_visible");
+    assert.equal(deletedDetail.statusCode, 404);
+
     const odd = await client.get(app, "/v1/messages/%2e%2e%2f%2e%2e%2fetc%2fpasswd");
     assert.equal(odd.statusCode, 404);
     assert.equal(JSON.stringify(odd.json()).includes("passwd"), false);
@@ -349,6 +383,15 @@ function cookieJar() {
         url,
         headers: { cookie, "x-csrf-token": token, "content-type": "application/json" },
         payload,
+      });
+      cookie = mergeCookie(cookie, response.headers["set-cookie"]);
+      return response;
+    },
+    async delete(app: Awaited<ReturnType<typeof buildApi>>, url: string) {
+      const response = await app.inject({
+        method: "DELETE",
+        url,
+        headers: { cookie, "x-csrf-token": token },
       });
       cookie = mergeCookie(cookie, response.headers["set-cookie"]);
       return response;

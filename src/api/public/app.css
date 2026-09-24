@@ -717,6 +717,28 @@ input:focus, select:focus, textarea:focus {
   border-color: var(--border-strong);
 }
 
+.btn-danger {
+  background: #ef4444 !important;
+  color: #fff !important;
+  border-color: #ef4444 !important;
+}
+
+.btn-danger:hover {
+  filter: brightness(1.1);
+}
+
+.btn-danger-ghost {
+  color: #f87171 !important;
+  border-color: rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.btn-danger-ghost:hover {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: rgba(239, 68, 68, 0.6);
+  color: #ef4444 !important;
+}
+
 .meta-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));

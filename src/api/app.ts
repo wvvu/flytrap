@@ -17,7 +17,7 @@ import { findAttachment, listMessageAttachments } from "../db/repos/attachments.
 import { writeAudit } from "../db/repos/audit.js";
 import { enqueueJob, hasOpenJob, listJobsWithDetails, retryAllDeadJobs, retryJob } from "../db/repos/jobs.js";
 import { listMailboxHistory, upsertMailboxHistory } from "../db/repos/mailbox-history.js";
-import { getMessage, listMessages } from "../db/repos/messages.js";
+import { countTrash, deleteMessage, emptyTrash, getMessage, listMessages, restoreMessage, trashMessage } from "../db/repos/messages.js";
 import { sha256 } from "../hash.js";
 import { readRaw } from "../ingest/read-raw.js";
 import { PathEscapeError, resolveInside } from "../paths.js";
@@ -258,6 +258,62 @@ export async function buildApi(options: ApiOptions): Promise<FastifyInstance> {
     });
   });
 
+  app.post("/v1/messages/:id/trash", async (request, reply) => {
+    const id = messageId(request);
+    requireMessage(db, id);
+    trashMessage(db, id, now());
+    writeAudit(db, {
+      id: ulid(),
+      at: now(),
+      actor: request.session.user ?? "unknown",
+      action: "trash",
+      target: id,
+    });
+    return reply.send({ ok: true, id, trashed: true });
+  });
+
+  app.post("/v1/messages/:id/restore", async (request, reply) => {
+    const id = messageId(request);
+    requireMessage(db, id);
+    restoreMessage(db, id, now());
+    writeAudit(db, {
+      id: ulid(),
+      at: now(),
+      actor: request.session.user ?? "unknown",
+      action: "restore",
+      target: id,
+    });
+    return reply.send({ ok: true, id, trashed: false });
+  });
+
+  app.delete("/v1/messages/:id", async (request, reply) => {
+    const id = messageId(request);
+    requireMessage(db, id);
+    deleteMessage(db, id);
+    writeAudit(db, {
+      id: ulid(),
+      at: now(),
+      actor: request.session.user ?? "unknown",
+      action: "delete",
+      target: id,
+    });
+    return reply.send({ ok: true, id, deleted: true });
+  });
+
+  app.post("/v1/messages/empty-trash", async (request, reply) => {
+    const count = emptyTrash(db);
+    writeAudit(db, {
+      id: ulid(),
+      at: now(),
+      actor: request.session.user ?? "unknown",
+      action: "empty_trash",
+      detail: `count=${count}`,
+    });
+    return reply.send({ ok: true, count });
+  });
+
+  app.get("/v1/trash/count", async () => ({ count: countTrash(db) }));
+
   app.get("/v1/attachments/:sha256", async (request, reply) => {
     const sha = attachmentId(request);
     const row = findAttachment(db, sha);
@@ -440,6 +496,7 @@ function requireMessage(db: Db, id: string) {
 function readListQuery(query: unknown): {
   label?: string;
   status?: string;
+  trashed?: boolean | "all";
   q?: string;
   from?: string;
   domain?: string;
@@ -452,6 +509,15 @@ function readListQuery(query: unknown): {
   const source = query && typeof query === "object" ? (query as Record<string, unknown>) : {};
   const label = optionalString(source.label);
   const status = optionalString(source.status);
+  const trashedRaw = optionalString(source.trashed);
+  let trashed: boolean | "all" | undefined;
+  if (trashedRaw === "true" || trashedRaw === "1") {
+    trashed = true;
+  } else if (trashedRaw === "all") {
+    trashed = "all";
+  } else if (trashedRaw === "false" || trashedRaw === "0") {
+    trashed = false;
+  }
   const q = optionalString(source.q);
   const from = optionalString(source.from);
   const domain = optionalString(source.domain);
@@ -479,6 +545,7 @@ function readListQuery(query: unknown): {
   return {
     label,
     status,
+    trashed,
     q,
     from,
     domain,
@@ -530,6 +597,7 @@ function toListItem(row: ReturnType<typeof listMessages>[number]) {
     manualOverride: ai.manualOverride,
     originalLabel: ai.originalLabel,
     originalConfidence: ai.originalConfidence,
+    trashedAt: row.trashed_at ? iso(row.trashed_at) : null,
   };
 }
 
@@ -553,6 +621,7 @@ function toDetail(db: Db, id: string) {
     authResult: parseJson(message.auth_result),
     parsed: parseJson(message.parsed),
     aiResult: parseJson(message.ai_result),
+    trashedAt: message.trashed_at ? iso(message.trashed_at) : null,
     attachments: listMessageAttachments(db, id).map((row) => ({
       sha256: row.sha256,
       filename: row.filename,

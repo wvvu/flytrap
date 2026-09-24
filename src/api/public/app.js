@@ -28,16 +28,22 @@ const logoutBtn = document.querySelector("#logout");
 const themeBtn = document.querySelector("#btn-theme");
 const themeIcon = document.querySelector("#theme-icon");
 
-// 导航按钮 (收件箱, 死信队列, 系统设置)
+// 导航按钮 (收件箱, 垃圾桶, 死信队列, 系统设置)
 const navInboxBtn = document.querySelector("#nav-inbox");
+const navTrashBtn = document.querySelector("#nav-trash");
 const navDlqBtn = document.querySelector("#nav-dlq");
 const navSettingsBtn = document.querySelector("#nav-settings");
 const badgeDlq = document.querySelector("#badge-dlq");
+const badgeTrash = document.querySelector("#badge-trash");
 
 // 第二列流头部
 const streamInboxHeader = document.querySelector("#stream-inbox-header");
+const streamTrashHeader = document.querySelector("#stream-trash-header");
 const streamDlqHeader = document.querySelector("#stream-dlq-header");
 const streamSettingsHeader = document.querySelector("#stream-settings-header");
+const trashQueryInput = document.querySelector("#trash-q");
+const trashRefreshBtn = document.querySelector("#btn-trash-refresh");
+const emptyTrashBtn = document.querySelector("#btn-empty-trash");
 const listEl = document.querySelector("#list");
 const moreBtn = document.querySelector("#more");
 const noticeEl = document.querySelector("#notice");
@@ -80,6 +86,9 @@ const mailSandbox = document.querySelector("#mail-sandbox");
 const plainTextBody = document.querySelector("#plain-text-body");
 const rawHeaders = document.querySelector("#raw-headers");
 const authChips = document.querySelector("#auth-chips");
+const btnTrashMail = document.querySelector("#btn-trash-mail");
+const btnRestoreMail = document.querySelector("#btn-restore-mail");
+const btnDeleteMail = document.querySelector("#btn-delete-mail");
 const btnReclassify = document.querySelector("#btn-reclassify");
 const btnDownloadEml = document.querySelector("#btn-download-eml");
 const btnLoadImages = document.querySelector("#btn-load-images");
@@ -94,12 +103,26 @@ logoutBtn.addEventListener("click", () => void signOut());
 themeBtn.addEventListener("click", () => toggleTheme());
 
 navInboxBtn?.addEventListener("click", () => switchNav("inbox"));
+navTrashBtn?.addEventListener("click", () => switchNav("trash"));
 navDlqBtn?.addEventListener("click", () => switchNav("dlq"));
 navSettingsBtn?.addEventListener("click", () => switchNav("settings"));
 
 refreshBtn?.addEventListener("click", () => void reloadMessages());
+trashRefreshBtn?.addEventListener("click", () => void reloadTrash());
+emptyTrashBtn?.addEventListener("click", () => void handleEmptyTrash());
 dlqRefreshBtn?.addEventListener("click", () => void loadDlqJobs());
 retryAllBtn?.addEventListener("click", () => void retryAllDead());
+
+btnTrashMail?.addEventListener("click", () => void handleTrashMail());
+btnRestoreMail?.addEventListener("click", () => void handleRestoreMail());
+btnDeleteMail?.addEventListener("click", () => void handleDeleteMail());
+
+document.querySelector("#trash-filters")?.addEventListener("submit", (e) => {
+  e.preventDefault();
+  void reloadTrash();
+});
+
+trashQueryInput?.addEventListener("input", debounce(() => void reloadTrash(), 350));
 
 document.querySelector("#filters")?.addEventListener("submit", (e) => {
   e.preventDefault();
@@ -186,6 +209,10 @@ window.addEventListener("keydown", (e) => {
     if (e.key === "j") navigateMail(1);
     else if (e.key === "k") navigateMail(-1);
     else if (e.key === "r") void reloadMessages();
+  } else if (currentView === "trash") {
+    if (e.key === "j") navigateMail(1);
+    else if (e.key === "k") navigateMail(-1);
+    else if (e.key === "r") void reloadTrash();
   }
 });
 
@@ -199,6 +226,7 @@ async function init() {
     showApp();
     await switchNav("inbox");
     void updateDlqBadge();
+    void updateTrashBadge();
   } catch {
     showLogin();
   }
@@ -237,6 +265,7 @@ async function signIn() {
     showApp();
     await switchNav("inbox");
     void updateDlqBadge();
+    void updateTrashBadge();
   } catch (err) {
     loginError.textContent = explain(err);
   } finally {
@@ -277,15 +306,15 @@ const SETTING_CATEGORIES = [
   { id: "system", icon: "🖥️", title: "系统服务与运行健康", desc: "服务角色、端口监听与系统状态" },
 ];
 
-// 视图切换
 async function switchNav(view) {
   currentView = view;
-  const navBtns = [navInboxBtn, navDlqBtn, navSettingsBtn];
+  const navBtns = [navInboxBtn, navTrashBtn, navDlqBtn, navSettingsBtn];
   navBtns.forEach((b) => b?.classList.remove("active"));
   const viewPanels = [viewMail, viewDlq, viewPrompts, viewMailboxes, viewStats, viewSystem];
   viewPanels.forEach((p) => { if (p) p.hidden = true; });
 
   streamInboxHeader.hidden = true;
+  if (streamTrashHeader) streamTrashHeader.hidden = true;
   streamDlqHeader.hidden = true;
   if (streamSettingsHeader) streamSettingsHeader.hidden = true;
   noticeEl.textContent = "";
@@ -297,6 +326,12 @@ async function switchNav(view) {
     streamInboxHeader.hidden = false;
     viewMail.hidden = false;
     await reloadMessages();
+  } else if (view === "trash") {
+    navTrashBtn?.classList.add("active");
+    if (streamTrashHeader) streamTrashHeader.hidden = false;
+    viewMail.hidden = false;
+    await reloadTrash();
+    void updateTrashBadge();
   } else if (view === "dlq") {
     navDlqBtn?.classList.add("active");
     streamDlqHeader.hidden = false;
@@ -379,7 +414,7 @@ async function loadSystemView() {
   }
 }
 
-// ==================== 收件箱模块 ====================
+// ==================== 收件箱与垃圾桶模块 ====================
 
 async function reloadMessages() {
   cursor = null;
@@ -388,11 +423,25 @@ async function reloadMessages() {
   await loadMessagesPage(true);
 }
 
+async function reloadTrash() {
+  cursor = null;
+  listEl.replaceChildren();
+  noticeEl.textContent = "";
+  await loadMessagesPage(true);
+}
+
 async function loadMessagesPage(replace) {
   const params = new URLSearchParams();
-  if (labelInput.value) params.set("label", labelInput.value);
-  const q = queryInput.value.trim();
-  if (q) params.set("q", q);
+  if (currentView === "trash") {
+    params.set("trashed", "true");
+    const tq = trashQueryInput ? trashQueryInput.value.trim() : "";
+    if (tq) params.set("q", tq);
+  } else {
+    params.set("trashed", "false");
+    if (labelInput.value) params.set("label", labelInput.value);
+    const q = queryInput ? queryInput.value.trim() : "";
+    if (q) params.set("q", q);
+  }
   params.set("limit", "40");
   if (!replace && cursor) params.set("cursor", cursor);
 
@@ -403,7 +452,7 @@ async function loadMessagesPage(replace) {
     else currentMessages = currentMessages.concat(items);
 
     if (replace && items.length === 0) {
-      noticeEl.textContent = "没有匹配的邮件";
+      noticeEl.textContent = currentView === "trash" ? "垃圾桶空空如也" : "没有匹配的邮件";
     }
 
     for (const item of items) {
@@ -495,6 +544,12 @@ async function selectMail(id) {
     if (detailFrom) detailFrom.textContent = detail.from || detail.envelopeFrom || "未知发件人";
     if (detailTo) detailTo.textContent = Array.isArray(detail.envelopeTo) ? detail.envelopeTo.join(", ") : detail.envelopeTo || "";
     if (detailTime) detailTime.textContent = formatFullTime(detail.receivedAt);
+
+    const isTrashed = Boolean(detail.trashedAt || currentView === "trash");
+    if (btnTrashMail) btnTrashMail.hidden = isTrashed;
+    if (btnRestoreMail) btnRestoreMail.hidden = !isTrashed;
+    if (btnDeleteMail) btnDeleteMail.hidden = !isTrashed;
+    if (btnReclassify) btnReclassify.hidden = isTrashed;
 
     const label = detail.aiResult?.label || detail.label || "gray";
     if (detailVerdictSelect) {
@@ -666,6 +721,125 @@ function navigateMail(delta) {
   const nextIdx = Math.max(0, Math.min(currentMessages.length - 1, idx + delta));
   if (nextIdx !== idx) {
     void selectMail(currentMessages[nextIdx].id);
+  }
+}
+
+// ==================== 垃圾桶动作处理 ====================
+
+async function handleTrashMail() {
+  if (!selectedMailId) return;
+  const id = selectedMailId;
+  if (btnTrashMail) btnTrashMail.disabled = true;
+  try {
+    await request("/v1/messages/" + encodeURIComponent(id) + "/trash", { method: "POST", body: {} });
+    noticeEl.textContent = "邮件已移入垃圾桶";
+    setTimeout(() => { if (noticeEl.textContent === "邮件已移入垃圾桶") noticeEl.textContent = ""; }, 3000);
+    const card = listEl.querySelector(`.mail-item[data-id="${id}"]`);
+    if (card) card.remove();
+    currentMessages = currentMessages.filter((m) => m.id !== id);
+    const nextCard = listEl.querySelector(".mail-item");
+    if (nextCard && nextCard.getAttribute("data-id")) {
+      void selectMail(nextCard.getAttribute("data-id"));
+    } else {
+      selectedMailId = null;
+      mailDetailEl.hidden = true;
+      mailEmptyEl.hidden = false;
+    }
+    void updateTrashBadge();
+  } catch (err) {
+    noticeEl.textContent = "移入垃圾桶失败: " + explain(err);
+  } finally {
+    if (btnTrashMail) btnTrashMail.disabled = false;
+  }
+}
+
+async function handleRestoreMail() {
+  if (!selectedMailId) return;
+  const id = selectedMailId;
+  if (btnRestoreMail) btnRestoreMail.disabled = true;
+  try {
+    await request("/v1/messages/" + encodeURIComponent(id) + "/restore", { method: "POST", body: {} });
+    noticeEl.textContent = "邮件已恢复至收件箱";
+    setTimeout(() => { if (noticeEl.textContent === "邮件已恢复至收件箱") noticeEl.textContent = ""; }, 3000);
+    const card = listEl.querySelector(`.mail-item[data-id="${id}"]`);
+    if (card) card.remove();
+    currentMessages = currentMessages.filter((m) => m.id !== id);
+    const nextCard = listEl.querySelector(".mail-item");
+    if (nextCard && nextCard.getAttribute("data-id")) {
+      void selectMail(nextCard.getAttribute("data-id"));
+    } else {
+      selectedMailId = null;
+      mailDetailEl.hidden = true;
+      mailEmptyEl.hidden = false;
+    }
+    void updateTrashBadge();
+  } catch (err) {
+    noticeEl.textContent = "恢复邮件失败: " + explain(err);
+  } finally {
+    if (btnRestoreMail) btnRestoreMail.disabled = false;
+  }
+}
+
+async function handleDeleteMail() {
+  if (!selectedMailId) return;
+  if (!window.confirm("确定永久删除此邮件吗？此操作无法撤销。")) return;
+  const id = selectedMailId;
+  if (btnDeleteMail) btnDeleteMail.disabled = true;
+  try {
+    await request("/v1/messages/" + encodeURIComponent(id), { method: "DELETE" });
+    noticeEl.textContent = "邮件已彻底删除";
+    setTimeout(() => { if (noticeEl.textContent === "邮件已彻底删除") noticeEl.textContent = ""; }, 3000);
+    const card = listEl.querySelector(`.mail-item[data-id="${id}"]`);
+    if (card) card.remove();
+    currentMessages = currentMessages.filter((m) => m.id !== id);
+    const nextCard = listEl.querySelector(".mail-item");
+    if (nextCard && nextCard.getAttribute("data-id")) {
+      void selectMail(nextCard.getAttribute("data-id"));
+    } else {
+      selectedMailId = null;
+      mailDetailEl.hidden = true;
+      mailEmptyEl.hidden = false;
+    }
+    void updateTrashBadge();
+  } catch (err) {
+    noticeEl.textContent = "彻底删除失败: " + explain(err);
+  } finally {
+    if (btnDeleteMail) btnDeleteMail.disabled = false;
+  }
+}
+
+async function handleEmptyTrash() {
+  if (!window.confirm("确定清空垃圾桶内全部邮件吗？此操作无法撤销。")) return;
+  if (emptyTrashBtn) emptyTrashBtn.disabled = true;
+  try {
+    const res = await request("/v1/messages/empty-trash", { method: "POST", body: {} });
+    noticeEl.textContent = `垃圾桶已清空 (共清除 ${res.count || 0} 封邮件)`;
+    setTimeout(() => { if (noticeEl.textContent.startsWith("垃圾桶已清空")) noticeEl.textContent = ""; }, 3000);
+    selectedMailId = null;
+    mailDetailEl.hidden = true;
+    mailEmptyEl.hidden = false;
+    await reloadTrash();
+    void updateTrashBadge();
+  } catch (err) {
+    noticeEl.textContent = "清空垃圾桶失败: " + explain(err);
+  } finally {
+    if (emptyTrashBtn) emptyTrashBtn.disabled = false;
+  }
+}
+
+async function updateTrashBadge() {
+  if (!badgeTrash) return;
+  try {
+    const res = await request("/v1/trash/count");
+    const count = typeof res.count === "number" ? res.count : 0;
+    if (count > 0) {
+      badgeTrash.hidden = false;
+      badgeTrash.textContent = String(count);
+    } else {
+      badgeTrash.hidden = true;
+    }
+  } catch {
+    badgeTrash.hidden = true;
   }
 }
 

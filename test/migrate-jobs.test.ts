@@ -15,7 +15,7 @@ test("migration is idempotent and jobs are claimed atomically", () => {
   try {
     const first = migrate(db, migrationsDir(), () => 1);
     const second = migrate(db, migrationsDir(), () => 2);
-    assert.deepEqual(first, ["001_init"]);
+    assert.deepEqual(first, ["001_init", "002_trash"]);
     assert.deepEqual(second, []);
     const journal = db.pragma("journal_mode", { simple: true });
     assert.equal(String(journal).toLowerCase(), "wal");

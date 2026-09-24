@@ -99,6 +99,7 @@ export interface StoredMessage {
   ai_result: string | null;
   status: string;
   error: string | null;
+  trashed_at: number | null;
 }
 
 export function getMessage(db: Db, id: string): StoredMessage | undefined {
@@ -106,7 +107,7 @@ export function getMessage(db: Db, id: string): StoredMessage | undefined {
     .prepare(
       `SELECT id, sha256, raw_path, size_bytes, received_at, envelope_from, envelope_to, domains,
               message_id, subject, from_addr, to_addrs, smtp_meta, auth_result, parsed, ai_result,
-              status, error
+              status, error, trashed_at
        FROM messages WHERE id = ?`,
     )
     .get(id) as StoredMessage | undefined;
@@ -159,6 +160,7 @@ export function saveAiResult(db: Db, id: string, aiResult: string, now: number):
 export interface MessageListQuery {
   label?: string;
   status?: string;
+  trashed?: boolean | "all";
   q?: string;
   from?: string;
   domain?: string;
@@ -182,11 +184,19 @@ export interface MessageListRow {
   domains: string;
   status: string;
   ai_result: string | null;
+  trashed_at: number | null;
 }
 
 export function listMessages(db: Db, query: MessageListQuery): MessageListRow[] {
   const where: string[] = [];
   const params: Record<string, string | number> = { limit: query.limit };
+  if (query.trashed === true) {
+    where.push("trashed_at IS NOT NULL");
+  } else if (query.trashed === "all") {
+    // no filter on trashed_at
+  } else {
+    where.push("trashed_at IS NULL");
+  }
   if (query.status) {
     where.push("status = :status");
     params.status = query.status;
@@ -225,7 +235,7 @@ export function listMessages(db: Db, query: MessageListQuery): MessageListRow[] 
     params.cursorId = query.cursorId;
   }
   const sql = `SELECT id, sha256, received_at, size_bytes, envelope_from, envelope_to, message_id,
-                      subject, from_addr, domains, status, ai_result
+                      subject, from_addr, domains, status, ai_result, trashed_at
                FROM messages
                ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
                ORDER BY received_at DESC, id DESC
@@ -241,4 +251,39 @@ export function markMessageNotified(db: Db, id: string, now: number): void {
   db.prepare(
     `UPDATE messages SET status = 'notified', error = NULL, updated_at = ? WHERE id = ?`,
   ).run(now, id);
+}
+
+export function trashMessage(db: Db, id: string, now: number): void {
+  db.prepare("UPDATE messages SET trashed_at = ?, updated_at = ? WHERE id = ?").run(now, now, id);
+}
+
+export function restoreMessage(db: Db, id: string, now: number): void {
+  db.prepare("UPDATE messages SET trashed_at = NULL, updated_at = ? WHERE id = ?").run(now, id);
+}
+
+export function deleteMessage(db: Db, id: string): void {
+  db.transaction(() => {
+    db.prepare("DELETE FROM message_attachments WHERE message_id = ?").run(id);
+    db.prepare("DELETE FROM deliveries WHERE message_id = ?").run(id);
+    db.prepare("DELETE FROM jobs WHERE message_id = ?").run(id);
+    db.prepare("DELETE FROM messages WHERE id = ?").run(id);
+  })();
+}
+
+export function emptyTrash(db: Db): number {
+  return db.transaction(() => {
+    const rows = db.prepare("SELECT id FROM messages WHERE trashed_at IS NOT NULL").all() as Array<{ id: string }>;
+    for (const row of rows) {
+      db.prepare("DELETE FROM message_attachments WHERE message_id = ?").run(row.id);
+      db.prepare("DELETE FROM deliveries WHERE message_id = ?").run(row.id);
+      db.prepare("DELETE FROM jobs WHERE message_id = ?").run(row.id);
+      db.prepare("DELETE FROM messages WHERE id = ?").run(row.id);
+    }
+    return rows.length;
+  })();
+}
+
+export function countTrash(db: Db): number {
+  const row = db.prepare("SELECT COUNT(*) AS c FROM messages WHERE trashed_at IS NOT NULL").get() as { c: number };
+  return row ? row.c : 0;
 }

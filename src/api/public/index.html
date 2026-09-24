@@ -42,6 +42,11 @@
             <span class="label">收件箱</span>
             <span class="badge" id="badge-inbox" hidden>0</span>
           </button>
+          <button type="button" class="rail-btn" id="nav-trash" title="垃圾桶 (T)">
+            <span class="icon">🗑️</span>
+            <span class="label">垃圾桶</span>
+            <span class="badge" id="badge-trash" hidden>0</span>
+          </button>
           <button type="button" class="rail-btn" id="nav-dlq" title="死信队列 (D)">
             <span class="icon">💀</span>
             <span class="label">死信队列</span>
@@ -88,6 +93,20 @@
               <option value="gray">❓ 未知/可疑</option>
             </select>
           </div>
+        </div>
+
+        <!-- 垃圾桶模式的顶部操作栏 -->
+        <div id="stream-trash-header" class="stream-header" hidden>
+          <div class="stream-title-row">
+            <h2>垃圾桶</h2>
+            <div class="stream-actions">
+              <button type="button" id="btn-empty-trash" class="btn-sm btn-danger-ghost" title="清空全部垃圾">清空垃圾桶</button>
+              <button type="button" id="btn-trash-refresh" class="btn-icon" title="刷新列表">↻</button>
+            </div>
+          </div>
+          <form id="trash-filters" class="search-box">
+            <input id="trash-q" type="search" maxlength="200" placeholder="搜索已废弃邮件...">
+          </form>
         </div>
 
         <!-- 死信队列模式的顶部操作栏 -->
@@ -138,6 +157,9 @@
               <div class="detail-title-line">
                 <h1 id="detail-subject">(无主题)</h1>
                 <div class="detail-actions">
+                  <button type="button" id="btn-trash-mail" class="btn-sm btn-danger-ghost" title="移入垃圾桶">移入垃圾桶</button>
+                  <button type="button" id="btn-restore-mail" class="btn-sm" title="恢复至收件箱" hidden>↩️ 恢复邮件</button>
+                  <button type="button" id="btn-delete-mail" class="btn-sm btn-danger" title="永久彻底删除" hidden>❌ 彻底删除</button>
                   <button type="button" id="btn-reclassify" class="btn-sm">重分类</button>
                   <a id="btn-download-eml" class="btn-sm btn-link" target="_blank" download>下载 EML</a>
                 </div>
