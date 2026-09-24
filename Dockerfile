@@ -8,6 +8,7 @@ RUN apt-get update \
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY tsconfig.json ./
+COPY scripts/copy-public.mjs ./scripts/copy-public.mjs
 COPY src ./src
 RUN npm run build && npm prune --omit=dev
 
