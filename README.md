@@ -54,9 +54,11 @@ Open **<http://localhost:8080>** → login with the credentials from `.env`.
 To start classifying emails with AI, set `CLASSIFIER=gemini` and provide your API key(s) in `GEMINI_API_KEYS`.
 
 > **Production note**: Flytrap runs as an unprivileged container listening on SMTP port `2525`. On a production Linux VPS, forward standard incoming port 25:
+>
 > ```bash
 > sudo iptables -t nat -A PREROUTING -p tcp --dport 25 -j REDIRECT --to-port 2525
 > ```
+>
 > The panel is bound to `127.0.0.1:8080` for security. Place Caddy or Nginx in front of it for HTTPS.
 
 ### Seed test emails
@@ -202,7 +204,6 @@ src/
   npm test
   ```
   Runs the full automated test suite (45 unit & integration tests covering SMTP policy, authentication, DLQ, parser, and Gemini failover).
-
 - **Rebuild database from raw storage**:
   ```bash
   node dist/main.js --rebuild
@@ -217,5 +218,5 @@ src/
 
 ---
 
-<div align="center">   <sub>Named after the <a href="https://en.wikipedia.org/wiki/Venus_flytrap">Venus flytrap</a> — it sits quietly, waits, and catches.</sub>  
+<div align="center">   <sub>Named after the <a href="https://en.wikipedia.org/wiki/Venus_flytrap">Venus flytrap</a> — it sits quietly, waits, and catches.</sub>    
 </div>
