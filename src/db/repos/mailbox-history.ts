@@ -47,6 +47,8 @@ export function upsertMailboxHistory(
     notes: string | null;
   },
 ): void {
+  const domain = row.domain.trim().toLowerCase();
+  const localpart = row.localpart.trim().toLowerCase();
   db.prepare(
     `INSERT INTO mailbox_history (id, domain, localpart, first_seen, last_seen, source, notes)
      VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -55,5 +57,5 @@ export function upsertMailboxHistory(
        last_seen = COALESCE(excluded.last_seen, mailbox_history.last_seen),
        source = COALESCE(excluded.source, mailbox_history.source),
        notes = COALESCE(excluded.notes, mailbox_history.notes)`,
-  ).run(ulid(), row.domain, row.localpart, row.firstSeen, row.lastSeen, row.source, row.notes);
+  ).run(ulid(), domain, localpart, row.firstSeen, row.lastSeen, row.source, row.notes);
 }

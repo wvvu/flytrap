@@ -50,12 +50,16 @@ export async function startWorker(options: WorkerOptions): Promise<RunningWorker
   let stopped = false;
   let current: Promise<void> | null = null;
   let currentJob: JobRow | null = null;
+  let wakeSleep: (() => void) | null = null;
 
   const loop = (async () => {
     while (!stopped) {
       const job = claimJob(options.db, workerId, now());
       if (!job) {
-        await sleep(pollMs);
+        await interruptibleSleep(pollMs, (wake) => {
+          wakeSleep = wake;
+        });
+        wakeSleep = null;
         continue;
       }
       currentJob = job;
@@ -75,6 +79,8 @@ export async function startWorker(options: WorkerOptions): Promise<RunningWorker
     ),
     async close() {
       stopped = true;
+      wakeSleep?.();
+      wakeSleep = null;
       const outcome = current
         ? await Promise.race([current.then(() => "done" as const), sleep(shutdownWaitMs).then(() => "timeout" as const)])
         : "done";
@@ -157,4 +163,14 @@ async function dispatch(options: WorkerOptions, job: JobRow, now: () => number):
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function interruptibleSleep(ms: number, bind: (wake: () => void) => void): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(), ms);
+    bind(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
 }

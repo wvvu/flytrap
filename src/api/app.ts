@@ -15,13 +15,15 @@ import type { Db } from "../db/index.js";
 import PostalMime from "postal-mime";
 import { findAttachment, listMessageAttachments } from "../db/repos/attachments.js";
 import { writeAudit } from "../db/repos/audit.js";
-import { enqueueJob, hasOpenJob, listJobsWithDetails, retryAllDeadJobs, retryJob } from "../db/repos/jobs.js";
+import { countJobsByStatus, enqueueJob, hasOpenJob, listJobsWithDetails, retryAllDeadJobs, retryJob, type JobStatus } from "../db/repos/jobs.js";
 import { listMailboxHistory, upsertMailboxHistory } from "../db/repos/mailbox-history.js";
 import { countTrash, deleteMessage, emptyTrash, getMessage, listMessages, restoreMessage, trashMessage } from "../db/repos/messages.js";
 import { sha256 } from "../hash.js";
 import { readRaw } from "../ingest/read-raw.js";
+import { removeStoredFiles } from "../ingest/remove-stored.js";
+import { rfc822HeaderBlock } from "../mail/headers.js";
 import { PathEscapeError, resolveInside } from "../paths.js";
-import { actorName, decodeCursor, encodeCursor, errorName, HttpError, iso, parseJson, publicError, safeMime } from "./http.js";
+import { actorName, contentDisposition, decodeCursor, encodeCursor, errorName, HttpError, iso, parseJson, publicError, safeMime } from "./http.js";
 import { credentialsMatch } from "./password.js";
 import { isPanelAsset, registerPanel } from "./static.js";
 
@@ -32,6 +34,7 @@ declare module "fastify" {
 }
 
 const STATUSES = ["received", "authed", "parsed", "classified", "notified", "error"] as const;
+const JOB_STATUSES = ["queued", "running", "done", "failed", "dead"] as const;
 const DOMAIN_RE =
   /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
@@ -73,7 +76,25 @@ export async function buildApi(options: ApiOptions): Promise<FastifyInstance> {
   );
   const { config, db, codec } = options;
 
-  await app.register(helmet, { contentSecurityPolicy: false });
+  await app.register(helmet, {
+    strictTransportSecurity: false,
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:", "blob:", "https:", "http:"],
+        fontSrc: ["'self'", "data:"],
+        connectSrc: ["'self'"],
+        frameSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        baseUri: ["'none'"],
+        formAction: ["'self'"],
+        frameAncestors: ["'none'"],
+        upgradeInsecureRequests: null,
+      },
+    },
+  });
   await app.register(cookie);
   await app.register(session, {
     secret: config.sessionSecret ?? "",
@@ -197,8 +218,20 @@ export async function buildApi(options: ApiOptions): Promise<FastifyInstance> {
     }
     return reply
       .header("content-type", "message/rfc822")
-      .header("content-disposition", `attachment; filename="${message.sha256}.eml"`)
+      .header("content-disposition", contentDisposition(`${message.sha256}.eml`))
       .send(bytes);
+  });
+
+  app.get("/v1/messages/:id/headers", async (request) => {
+    const message = requireMessage(db, messageId(request));
+    let bytes: Buffer;
+    try {
+      bytes = await readRaw(config.mailDataDir, message.raw_path, codec, message.sha256);
+    } catch (err) {
+      if (err instanceof PathEscapeError) throw new HttpError(404, "not_found");
+      throw new HttpError(404, "not_found");
+    }
+    return { headers: rfc822HeaderBlock(bytes) };
   });
 
   app.post("/v1/messages/:id/reclassify", async (request, reply) => {
@@ -289,7 +322,10 @@ export async function buildApi(options: ApiOptions): Promise<FastifyInstance> {
   app.delete("/v1/messages/:id", async (request, reply) => {
     const id = messageId(request);
     requireMessage(db, id);
-    deleteMessage(db, id);
+    const purged = deleteMessage(db, id, now());
+    if (!purged) throw new HttpError(404, "not_found");
+    const failed = await removeStoredFiles(config.mailDataDir, purged.paths);
+    if (failed.length > 0) request.log.warn({ failed: failed.length }, "stored files left on disk");
     writeAudit(db, {
       id: ulid(),
       at: now(),
@@ -301,7 +337,10 @@ export async function buildApi(options: ApiOptions): Promise<FastifyInstance> {
   });
 
   app.post("/v1/messages/empty-trash", async (request, reply) => {
-    const count = emptyTrash(db);
+    const purged = emptyTrash(db, now());
+    const failed = await removeStoredFiles(config.mailDataDir, purged.paths);
+    if (failed.length > 0) request.log.warn({ failed: failed.length }, "stored files left on disk");
+    const count = purged.count;
     writeAudit(db, {
       id: ulid(),
       at: now(),
@@ -331,8 +370,15 @@ export async function buildApi(options: ApiOptions): Promise<FastifyInstance> {
     if (sha256(bytes) !== sha) throw new HttpError(404, "not_found");
     return reply
       .header("content-type", safeMime(row.mime))
-      .header("content-disposition", `attachment; filename="${sha}"`)
+      .header("content-disposition", contentDisposition(sha))
       .send(bytes);
+  });
+
+  app.get("/v1/jobs/count", async (request) => {
+    const query = request.query as Record<string, unknown>;
+    const status = optionalString(query.status) ?? "dead";
+    if (!JOB_STATUSES.includes(status as JobStatus)) throw new HttpError(400);
+    return { status, count: countJobsByStatus(db, status as JobStatus) };
   });
 
   app.get("/v1/jobs", async (request) => {
@@ -417,7 +463,11 @@ export async function buildApi(options: ApiOptions): Promise<FastifyInstance> {
 
   app.get("/v1/stats", async () => {
     const start = utcDayStart(now());
-    return { today: countLabels(db, start), total: countLabels(db, null) };
+    return {
+      today: countLabels(db, start),
+      total: countLabels(db, null),
+      daily: dailySeries(db, start - 13 * 86_400_000, 14),
+    };
   });
 
   app.get("/v1/mailbox-history", async (request) => {
@@ -662,6 +712,34 @@ function aiSummary(raw: string | null): {
     originalLabel: typeof record.originalLabel === "string" ? record.originalLabel : null,
     originalConfidence: typeof record.originalConfidence === "number" ? record.originalConfidence : null,
   };
+}
+
+function dailySeries(db: Db, startMs: number, days: number): Array<{ day: string; total: number; labels: Record<string, number> }> {
+  const rows = db
+    .prepare(
+      `SELECT (received_at / 86400000) AS day_index,
+              COALESCE(json_extract(ai_result, '$.label'), 'unlabeled') AS label,
+              COUNT(*) AS n
+       FROM messages
+       WHERE received_at >= ?
+       GROUP BY 1, 2`,
+    )
+    .all(startMs) as Array<{ day_index: number; label: string; n: number }>;
+  const byDay = new Map<string, Record<string, number>>();
+  for (let i = 0; i < days; i += 1) {
+    byDay.set(new Date(startMs + i * 86_400_000).toISOString().slice(0, 10), {});
+  }
+  for (const row of rows) {
+    const day = new Date(row.day_index * 86_400_000).toISOString().slice(0, 10);
+    const bucket = byDay.get(day);
+    if (!bucket) continue;
+    bucket[row.label] = row.n;
+  }
+  return [...byDay].map(([day, labels]) => ({
+    day,
+    total: Object.values(labels).reduce((sum, n) => sum + n, 0),
+    labels,
+  }));
 }
 
 function countLabels(db: Db, since: number | null): Record<string, number> {

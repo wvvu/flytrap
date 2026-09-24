@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { dkimSign } from "mailauth";
+import { dkimSign, type DKIMSignOptions } from "mailauth";
 import { gzipCodec } from "../src/compress.js";
 import { openDatabase, type Db } from "../src/db/index.js";
 import { migrate } from "../src/db/migrate.js";
@@ -55,9 +55,10 @@ test("a signed fixture verifies with a stub resolver", async () => {
     "Hello flytrap",
     "",
   ].join("\r\n");
+  const pemText = typeof pem === "string" ? pem : pem.toString("utf8");
   const signed = await dkimSign(Buffer.from(message), {
-    signatureData: [{ signingDomain: "example.com", selector: "flytrap", privateKey: pem }],
-  });
+    signatureData: [{ signingDomain: "example.com", selector: "flytrap", privateKey: pemText }],
+  } as unknown as DKIMSignOptions);
   const raw = Buffer.from(signed.signatures + message);
   const auth = await authenticateMessage(
     {

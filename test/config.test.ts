@@ -54,6 +54,30 @@ test("api role refuses to start without a password or a long session secret", ()
   assert.equal(config.apiPassword, "hunter2");
 });
 
+test("production refuses the placeholder secret and the password admin", () => {
+  assert.throws(
+    () =>
+      loadConfig(
+        env({
+          NODE_ENV: "production",
+          ROLES: "api",
+          API_PASSWORD: "admin",
+          SESSION_SECRET: "0123456789abcdef0123456789abcdef",
+        }),
+      ),
+    /API_PASSWORD|SESSION_SECRET/,
+  );
+  const config = loadConfig(
+    env({
+      NODE_ENV: "production",
+      ROLES: "api",
+      API_PASSWORD: "a-real-password-value",
+      SESSION_SECRET: "another-secret-that-is-at-least-32-bytes",
+    }),
+  );
+  assert.equal(config.nodeEnv, "production");
+});
+
 test("worker with openai-compat requires the model settings", () => {
   assert.throws(() => loadConfig(env({ ROLES: "worker", CLASSIFIER: "openai-compat" })), /OPENAI_BASE_URL/);
   const config = loadConfig(

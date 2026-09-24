@@ -167,14 +167,19 @@ export function retryAllDeadJobs(db: Db, now: number): number {
       )
       .run(now, now);
 
-    const messageIds = deadJobs.map((j) => j.message_id).filter((mid): mid is string => Boolean(mid));
-    if (messageIds.length > 0) {
-      const placeholders = messageIds.map(() => "?").join(",");
+    const messageIds = [
+      ...new Set(deadJobs.map((job) => job.message_id).filter((messageId): messageId is string => Boolean(messageId))),
+    ];
+    // Stay under SQLite's older 999-variable host parameter limit.
+    const chunkSize = 400;
+    for (let offset = 0; offset < messageIds.length; offset += chunkSize) {
+      const slice = messageIds.slice(offset, offset + chunkSize);
+      const placeholders = slice.map(() => "?").join(",");
       db.prepare(
         `UPDATE messages
          SET status = 'received', error = NULL, updated_at = ?
          WHERE id IN (${placeholders}) AND status = 'error'`,
-      ).run(now, ...messageIds);
+      ).run(now, ...slice);
     }
 
     return res.changes;
@@ -188,6 +193,11 @@ export interface ListJobsOptions {
 
 export interface JobDetailRow extends JobRow {
   message_subject: string | null;
+}
+
+export function countJobsByStatus(db: Db, status: JobStatus): number {
+  const row = db.prepare("SELECT COUNT(*) AS c FROM jobs WHERE status = ?").get(status) as { c: number };
+  return row.c;
 }
 
 export function listJobsWithDetails(db: Db, options: ListJobsOptions = {}): JobDetailRow[] {

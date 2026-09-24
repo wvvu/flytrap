@@ -33,6 +33,7 @@ export async function rebuildFromRaw(input: {
 }): Promise<RebuildReport> {
   const now = input.now ?? Date.now();
   const report: RebuildReport = { scanned: 0, inserted: 0, queued: 0, skipped: 0, mismatched: 0 };
+  const purged = input.db.prepare("SELECT 1 AS ok FROM purged_messages WHERE sha256 = ?");
   const files = await walkFiles(path.join(input.dataDir, "raw"));
 
   for (const abs of files) {
@@ -43,6 +44,10 @@ export async function rebuildFromRaw(input: {
       continue;
     }
     report.scanned += 1;
+    if (purged.get(expected)) {
+      report.skipped += 1;
+      continue;
+    }
 
     let relative: string;
     let plain: Buffer;

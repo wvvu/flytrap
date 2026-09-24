@@ -32,7 +32,7 @@
     </div>
 
     <!-- 已经登录的主工作区 (三列架构) -->
-    <div id="app" class="app-shell" hidden>
+    <div id="app" class="app-shell" data-pane="list" hidden>
       <!-- 第一列: 全局主功能轨 (Icon / Global Rail) -->
       <nav class="rail" aria-label="全局导航">
         <div class="rail-top">
@@ -79,18 +79,18 @@
           </div>
           <form id="filters" class="search-box">
             <input id="q" type="search" maxlength="200" placeholder="搜索主题、发件人...">
-            <input id="label" type="hidden" value="legit">
+            <input id="label" type="hidden" value="">
             <input id="status" type="hidden" value="">
           </form>
           <div class="stream-filter-bar">
             <select id="filter-select" class="stream-filter-select" title="按研判分类过滤">
-              <option value="legit" selected>📬 正常邮件</option>
-              <option value="">🌐 全部邮件</option>
-              <option value="phish">🚨 钓鱼欺诈</option>
-              <option value="malware">☣️ 恶意攻击</option>
-              <option value="spam">🗑️ 垃圾邮件</option>
-              <option value="unsolicited-admin">📢 推广营销</option>
-              <option value="gray">❓ 未知/可疑</option>
+              <option value="" selected>🌐 全部邮件</option>
+              <option value="legit" title="legit">📬 正常邮件</option>
+              <option value="phish" title="phish">🚨 钓鱼欺诈</option>
+              <option value="malware" title="malware">☣️ 恶意攻击</option>
+              <option value="spam" title="spam">🗑️ 垃圾邮件</option>
+              <option value="unsolicited-admin" title="unsolicited-admin">📢 推广营销</option>
+              <option value="gray" title="gray">❓ 未知/可疑</option>
             </select>
           </div>
         </div>
@@ -151,10 +151,16 @@
             <p>支持原生沙箱 HTML 预览、AI 威胁提取、外链审计与 RFC822 原文审查</p>
           </div>
 
+          <div id="mail-loading" class="empty-state" hidden>
+            <span class="empty-icon">⏳</span>
+            <h3>正在加载这封邮件</h3>
+          </div>
+
           <article id="mail-detail" class="detail-card" hidden>
             <!-- 邮件头信息 -->
             <header class="detail-header">
               <div class="detail-title-line">
+                <button type="button" id="btn-back-list" class="btn-sm mobile-back">← 返回列表</button>
                 <h1 id="detail-subject">(无主题)</h1>
               </div>
               <div class="meta-grid">
@@ -165,12 +171,12 @@
                   <span class="meta-label">威胁研判：</span>
                   <div class="verdict-control-group">
                     <select id="detail-verdict-select" class="verdict-select" title="手动修正研判类别">
-                      <option value="legit">📬 正常</option>
-                      <option value="unsolicited-admin">📢 推广</option>
-                      <option value="spam">🗑️ 垃圾</option>
-                      <option value="phish">🚨 钓鱼</option>
-                      <option value="malware">☣️ 恶意</option>
-                      <option value="gray">❓ 未知/可疑</option>
+                      <option value="legit" title="legit">📬 正常</option>
+                      <option value="unsolicited-admin" title="unsolicited-admin">📢 推广营销</option>
+                      <option value="spam" title="spam">🗑️ 垃圾</option>
+                      <option value="phish" title="phish">🚨 钓鱼</option>
+                      <option value="malware" title="malware">☣️ 恶意</option>
+                      <option value="gray" title="gray">❓ 未知/可疑</option>
                     </select>
                     <span id="detail-model-verdict" class="model-verdict-hint"></span>
                   </div>
@@ -220,7 +226,7 @@
                   <span class="subhead-hint">已隔离脚本执行与外部追踪像素</span>
                 </div>
                 <div class="html-container inlined-sandbox-wrap">
-                  <iframe id="mail-sandbox" sandbox="allow-same-origin" title="邮件 HTML 安全沙箱"></iframe>
+                  <iframe id="mail-sandbox" sandbox="" referrerpolicy="no-referrer" title="邮件 HTML 安全沙箱"></iframe>
                 </div>
               </section>
 
@@ -257,7 +263,8 @@
                 <h4>邮件来源认证与投递元数据</h4>
                 <div id="auth-chips" class="auth-chips-row"></div>
               </div>
-              <h4>RFC822 Header 与信头原文</h4>
+              <h4>RFC822 信头原文</h4>
+              <p class="stream-subtitle">来自原始邮件的信头，不含正文。完整字节用「下载 EML」。</p>
               <pre id="raw-headers" class="code-block"></pre>
             </div>
           </article>
@@ -352,7 +359,17 @@
                 <span class="stat-num" id="stat-legit-count">0</span>
                 <span class="stat-desc">正常通行</span>
               </div>
+              <div class="stat-card stat-promo">
+                <span class="stat-num" id="stat-promo-count">0</span>
+                <span class="stat-desc">推广营销</span>
+              </div>
+              <div class="stat-card stat-gray">
+                <span class="stat-num" id="stat-gray-count">0</span>
+                <span class="stat-desc">未知/可疑</span>
+              </div>
             </div>
+            <h3 class="trend-title">近 14 日捕获</h3>
+            <div id="stat-trend" class="trend"></div>
           </div>
         </section>
 
@@ -389,6 +406,16 @@
       </main>
     </div>
 
+    <div id="toast" class="toast" hidden role="status"></div>
+    <div id="confirm-modal" class="modal" hidden>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="confirm-text">
+        <p id="confirm-text"></p>
+        <div class="modal-actions">
+          <button type="button" id="confirm-cancel" class="btn-sm">取消</button>
+          <button type="button" id="confirm-ok" class="btn-sm btn-danger">确认</button>
+        </div>
+      </div>
+    </div>
     <script src="/app.js"></script>
   </body>
 </html>

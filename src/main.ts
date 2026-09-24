@@ -1,5 +1,5 @@
 import { loadCodec } from "./compress.js";
-import { loadConfig, ConfigError, type Config } from "./config.js";
+import { loadConfig, ConfigError, PLACEHOLDER_SESSION_SECRET, type Config } from "./config.js";
 import { dbFile, openDatabase } from "./db/index.js";
 import { migrate } from "./db/migrate.js";
 import { createLogger } from "./log.js";
@@ -34,12 +34,26 @@ const config: Config = (() => {
 
 const log = createLogger(config.logLevel);
 
+if (config.nodeEnv !== "test" && config.roles.includes("api")) {
+  if (config.sessionSecret === PLACEHOLDER_SESSION_SECRET) {
+    log.warn("SESSION_SECRET is the public placeholder. Rotate it before exposing the panel.");
+  }
+  if (config.apiPassword === "admin") {
+    log.warn("API_PASSWORD is admin. Rotate it before exposing the panel.");
+  }
+}
+
 if (process.argv.includes("--import-history")) {
   log.error("--import-history is not implemented yet");
   process.exit(1);
 }
 
-ensureDataDirs(config.mailDataDir);
+try {
+  ensureDataDirs(config.mailDataDir);
+} catch (err) {
+  bootLog.fatal({ err: err instanceof Error ? err.message : "data dir" }, "refusing to start");
+  process.exit(1);
+}
 const db = openDatabase(dbFile(config.mailDataDir));
 const applied = migrate(db, migrationsDir());
 log.info({ applied, roles: config.roles }, "database ready");

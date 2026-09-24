@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -20,6 +20,15 @@ export function ensureDataDirs(mailDataDir: string): void {
   mkdirSync(path.join(mailDataDir, "db"), { recursive: true });
   mkdirSync(path.join(mailDataDir, "raw"), { recursive: true });
   mkdirSync(path.join(mailDataDir, "attachments"), { recursive: true });
+  const probe = path.join(mailDataDir, ".write-probe");
+  try {
+    writeFileSync(probe, "ok");
+    rmSync(probe, { force: true });
+  } catch {
+    throw new Error(
+      `MAIL_DATA_DIR is not writable (${mailDataDir}). On Windows use a relative path such as ./data. In Docker the entrypoint chowns the mount to uid 1000.`,
+    );
+  }
 }
 
 /**

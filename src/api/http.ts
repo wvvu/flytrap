@@ -53,6 +53,14 @@ export function safeMime(mime: string | null): string {
   return mime;
 }
 
+const DISPOSITION_NAME = /^[0-9a-f]{64}(?:\.eml)?$/;
+
+/** Quoted filename is hex-only, so CR, LF, and quotes cannot break the header. */
+export function contentDisposition(filename: string): string {
+  if (!DISPOSITION_NAME.test(filename)) throw new HttpError(404, "not_found");
+  return `attachment; filename="${filename}"; filename*=UTF-8''${filename}`;
+}
+
 export function actorName(value: string): string {
   const clean = value.replace(/[^\w.@+-]/g, "").slice(0, 64);
   return clean || "unknown";

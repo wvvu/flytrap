@@ -8,6 +8,8 @@ const ROLES = ["smtp", "worker", "api"] as const;
 const DOMAIN_RE =
   /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
+export const PLACEHOLDER_SESSION_SECRET = "0123456789abcdef0123456789abcdef";
+
 export class ConfigError extends Error {
   constructor(message: string) {
     super(message);
@@ -158,6 +160,14 @@ function assertRoleRequirements(config: z.infer<typeof draftSchema>): void {
     if (!config.sessionSecret) problems.push("SESSION_SECRET is required to start the api role");
     else if (Buffer.byteLength(config.sessionSecret, "utf8") < 32) {
       problems.push("SESSION_SECRET must be at least 32 bytes");
+    }
+    if (config.nodeEnv === "production") {
+      if (config.apiPassword === "admin" || config.apiPassword === "password" || config.apiPassword === "changeme") {
+        problems.push("API_PASSWORD is a known weak password and is refused in production");
+      }
+      if (config.sessionSecret === PLACEHOLDER_SESSION_SECRET) {
+        problems.push("SESSION_SECRET is a known placeholder and is refused in production");
+      }
     }
   }
   if (config.roles.includes("worker") && config.classifier === "openai-compat") {

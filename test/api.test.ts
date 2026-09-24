@@ -3,6 +3,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+
+interface Injected {
+  statusCode: number;
+  body: string;
+  headers: Record<string, string | string[] | undefined>;
+  json: () => any;
+}
 import { buildApi } from "../src/api/app.js";
 import { gzipCodec } from "../src/compress.js";
 import { loadConfig } from "../src/config.js";
@@ -139,8 +146,14 @@ test("the api requires a session, hides paths, and pages the list", async () => 
 
     const raw = await client.get(app, "/v1/messages/msg_visible/raw");
     assert.equal(raw.statusCode, 200);
-    assert.match(raw.headers["content-type"] ?? "", /message\/rfc822/);
+    assert.match(String(raw.headers["content-type"] ?? ""), /message\/rfc822/);
+    assert.match(String(raw.headers["content-disposition"] ?? ""), /filename="[0-9a-f]{64}\.eml"/);
     assert.equal(raw.body, bytes.toString("utf8"));
+
+    const headers = await client.get(app, "/v1/messages/msg_visible/headers");
+    assert.equal(headers.statusCode, 200);
+    assert.match(headers.json().headers, /Subject: invoice/);
+    assert.equal(String(headers.json().headers).includes("SECRET-BODY-NEEDLE"), false);
 
     const escaped = await client.get(app, "/v1/messages/msg_hidden/raw");
     assert.equal(escaped.statusCode, 404);
@@ -362,37 +375,45 @@ function cookieJar() {
       assert.equal(response.statusCode, 200);
       assert.equal(typeof token, "string");
     },
-    async get(app: Awaited<ReturnType<typeof buildApi>>, url: string) {
-      const response = await app.inject({ method: "GET", url, headers: { cookie } });
+    async get(app: Awaited<ReturnType<typeof buildApi>>, url: string): Promise<Injected> {
+      const response = (await app.inject({ method: "GET", url, headers: { cookie } })) as Injected;
       cookie = mergeCookie(cookie, response.headers["set-cookie"]);
       return response;
     },
-    async post(app: Awaited<ReturnType<typeof buildApi>>, url: string, payload: unknown) {
-      const response = await app.inject({
+    async post(
+      app: Awaited<ReturnType<typeof buildApi>>,
+      url: string,
+      payload: Record<string, unknown>,
+    ): Promise<Injected> {
+      const response = (await app.inject({
         method: "POST",
         url,
         headers: { cookie, "x-csrf-token": token, "content-type": "application/json" },
         payload,
-      });
+      })) as Injected;
       cookie = mergeCookie(cookie, response.headers["set-cookie"]);
       return response;
     },
-    async patch(app: Awaited<ReturnType<typeof buildApi>>, url: string, payload: unknown) {
-      const response = await app.inject({
+    async patch(
+      app: Awaited<ReturnType<typeof buildApi>>,
+      url: string,
+      payload: Record<string, unknown>,
+    ): Promise<Injected> {
+      const response = (await app.inject({
         method: "PATCH",
         url,
         headers: { cookie, "x-csrf-token": token, "content-type": "application/json" },
         payload,
-      });
+      })) as Injected;
       cookie = mergeCookie(cookie, response.headers["set-cookie"]);
       return response;
     },
-    async delete(app: Awaited<ReturnType<typeof buildApi>>, url: string) {
-      const response = await app.inject({
+    async delete(app: Awaited<ReturnType<typeof buildApi>>, url: string): Promise<Injected> {
+      const response = (await app.inject({
         method: "DELETE",
         url,
         headers: { cookie, "x-csrf-token": token },
-      });
+      })) as Injected;
       cookie = mergeCookie(cookie, response.headers["set-cookie"]);
       return response;
     },

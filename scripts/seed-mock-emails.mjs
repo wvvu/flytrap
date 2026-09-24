@@ -1,5 +1,5 @@
-// scripts/seed-mock-emails.mjs
-// Sends 4 realistic emails to Flytrap local SMTP on port 2525 to populate the dashboard.
+// Host-side dev helper. nodemailer is a devDependency and this file is not copied
+// into the image. Run it on the host: node scripts/seed-mock-emails.mjs
 import nodemailer from "nodemailer";
 
 const smtpPort = Number.parseInt(process.env.SMTP_PORT || "2525", 10);
@@ -83,15 +83,29 @@ const samples = [
 
 async function main() {
   console.log(`Connecting to SMTP at ${smtpHost}:${smtpPort}...`);
-  for (const mail of samples) {
-    try {
-      const info = await transporter.sendMail(mail);
-      console.log(`Sent: "${mail.subject}" -> ${info.messageId}`);
-    } catch (err) {
-      console.error(`Failed to send "${mail.subject}":`, err.message);
+  let failed = 0;
+  try {
+    for (const mail of samples) {
+      try {
+        const info = await transporter.sendMail(mail);
+        console.log(`Sent: "${mail.subject}" -> ${info.messageId}`);
+      } catch (err) {
+        failed += 1;
+        console.error(`Failed to send "${mail.subject}":`, err instanceof Error ? err.message : err);
+      }
     }
+  } finally {
+    transporter.close();
+  }
+  if (failed > 0) {
+    console.error(`${failed} of ${samples.length} mock emails failed`);
+    process.exitCode = 1;
+    return;
   }
   console.log("Mock emails sent successfully!");
 }
 
-main().catch(console.error);
+main().catch((err) => {
+  console.error(err instanceof Error ? err.message : err);
+  process.exitCode = 1;
+});

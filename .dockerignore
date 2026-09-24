@@ -2,10 +2,16 @@
 node_modules
 dist
 data
+data-test
+storage
 coverage
 tmp
 temp
 *.log
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
 .env
 .env.*
 !.env.example
@@ -13,6 +19,8 @@ certs
 *.pem
 *.key
 *.crt
+.idea
+.vscode
 architecture
 docs
 test

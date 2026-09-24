@@ -49,6 +49,9 @@ test("the panel is static and the mail API stays behind the session", async () =
     assert.match(page.headers["content-type"] ?? "", /text\/html/);
     assert.match(page.body, /\/app\.js/);
     assert.match(page.body, /\/app\.css/);
+    assert.equal(page.body.includes("allow-same-origin"), false);
+    assert.match(page.body, /sandbox=""/);
+    assert.match(String(page.headers["content-security-policy"] ?? ""), /script-src 'self'/);
 
     const script = await app.inject({ method: "GET", url: "/app.js" });
     assert.equal(script.statusCode, 200);

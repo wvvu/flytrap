@@ -18,6 +18,10 @@ let allowExternalImages = false;
 let cursor = null;
 let currentJobs = [];
 let currentMessages = [];
+let mailLoadToken = 0;
+let csrfToken = null;
+let toastTimer = 0;
+let currentPromptId = "classify-v1";
 
 // DOM 元素引用
 const appEl = document.querySelector("#app");
@@ -64,7 +68,14 @@ const viewSystem = document.querySelector("#view-system");
 
 // 邮件阅读器元素
 const mailEmptyEl = document.querySelector("#mail-empty");
+const mailLoadingEl = document.querySelector("#mail-loading");
 const mailDetailEl = document.querySelector("#mail-detail");
+const backListBtn = document.querySelector("#btn-back-list");
+const toastEl = document.querySelector("#toast");
+const confirmModal = document.querySelector("#confirm-modal");
+const confirmText = document.querySelector("#confirm-text");
+const confirmOk = document.querySelector("#confirm-ok");
+const confirmCancel = document.querySelector("#confirm-cancel");
 const detailSubject = document.querySelector("#detail-subject");
 const detailFrom = document.querySelector("#detail-from");
 const detailTo = document.querySelector("#detail-to");
@@ -116,6 +127,15 @@ retryAllBtn?.addEventListener("click", () => void retryAllDead());
 btnTrashMail?.addEventListener("click", () => void handleTrashMail());
 btnRestoreMail?.addEventListener("click", () => void handleRestoreMail());
 btnDeleteMail?.addEventListener("click", () => void handleDeleteMail());
+backListBtn?.addEventListener("click", () => setMobilePane("list"));
+document.querySelector("#btn-save-prompt")?.addEventListener("click", () => void saveCurrentPrompt());
+document.querySelector("#mailbox-form")?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  void saveMailbox();
+});
+document.querySelector("#btn-dlq-single-retry")?.addEventListener("click", () => {
+  if (selectedJobId) void retrySingleJob(selectedJobId);
+});
 
 document.querySelector("#trash-filters")?.addEventListener("submit", (e) => {
   e.preventDefault();
@@ -151,7 +171,7 @@ detailVerdictSelect?.addEventListener("change", async () => {
       const origConf = typeof res.originalConfidence === "number" ? " " + Math.round(res.originalConfidence * 100) + "%" : "";
       detailModelVerdict.textContent = `(模型初判: ${origName}${origConf} · 人工修正)`;
     }
-    const listItem = listEl.querySelector(`.mail-item[data-id="${selectedMailId}"]`);
+    const listItem = findByDataId(listEl, ".mail-item", selectedMailId);
     if (listItem) {
       const tag = listItem.querySelector(".verdict-tag");
       if (tag) {
@@ -206,7 +226,9 @@ btnReclassify?.addEventListener("click", () => {
 
 // 键盘快捷键 (j: 下一封, k: 上一封, r: 刷新)
 window.addEventListener("keydown", (e) => {
-  if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (confirmModal && !confirmModal.hidden) return;
+  if (isTypingTarget(e.target)) return;
   if (currentView === "inbox") {
     if (e.key === "j") navigateMail(1);
     else if (e.key === "k") navigateMail(-1);
@@ -232,6 +254,7 @@ async function init() {
   } catch {
     showLogin();
   }
+  window.setInterval(() => void pollLive(), 30000);
 }
 
 function initTheme() {
@@ -264,6 +287,7 @@ async function signIn() {
       },
     });
     document.querySelector("#password").value = "";
+    csrfToken = null;
     showApp();
     await switchNav("inbox");
     void updateDlqBadge();
@@ -284,6 +308,7 @@ async function signOut() {
   } catch {
     // Session destroyed
   }
+  csrfToken = null;
   showLogin();
 }
 
@@ -322,6 +347,7 @@ async function switchNav(view) {
   noticeEl.textContent = "";
   listEl.replaceChildren();
   moreBtn.hidden = true;
+  setMobilePane("list");
 
   if (view === "inbox") {
     navInboxBtn?.classList.add("active");
@@ -343,7 +369,7 @@ async function switchNav(view) {
     navSettingsBtn?.classList.add("active");
     if (streamSettingsHeader) streamSettingsHeader.hidden = false;
     renderSettingsStream();
-    await switchSettingCategory(currentSettingCategory);
+    await switchSettingCategory(currentSettingCategory, { keepListOnNarrow: true });
   }
 }
 
@@ -376,7 +402,7 @@ function renderSettingsStream() {
   }
 }
 
-async function switchSettingCategory(catId) {
+async function switchSettingCategory(catId, options = {}) {
   currentSettingCategory = catId;
   const items = listEl.querySelectorAll(".settings-nav-item");
   items.forEach((it, idx) => {
@@ -386,6 +412,7 @@ async function switchSettingCategory(catId) {
   const settingPanels = [viewPrompts, viewMailboxes, viewStats, viewSystem];
   settingPanels.forEach((p) => { if (p) p.hidden = true; });
 
+  if (!options.keepListOnNarrow) setMobilePane("detail");
   if (catId === "prompts") {
     viewPrompts.hidden = false;
     await loadPromptsView();
@@ -463,9 +490,9 @@ async function loadMessagesPage(replace) {
     cursor = page.nextCursor || null;
     moreBtn.hidden = !cursor;
 
-    // 如果还没有选中邮件且有数据，默认自动选择第一封
+    // 桌面端顺手打开第一封。窄屏留在列表，避免一进来就盖住收件流。
     if (replace && items.length > 0 && !selectedMailId) {
-      void selectMail(items[0].id);
+      void selectMail(items[0].id, { keepListOnNarrow: true });
     }
   } catch (err) {
     if (err && err.status === 401) {
@@ -521,11 +548,13 @@ function createMailListItem(item) {
   return card;
 }
 
-async function selectMail(id) {
+async function selectMail(id, options = {}) {
+  const token = ++mailLoadToken;
   selectedMailId = id;
   allowExternalImages = false;
   btnLoadImages.textContent = "允许加载外链图片";
   btnLoadImages.disabled = false;
+  if (!options.keepListOnNarrow) setMobilePane("detail");
 
   // 默认折叠威胁指纹与外链
   if (sectionSignals) sectionSignals.open = false;
@@ -538,10 +567,13 @@ async function selectMail(id) {
   });
 
   mailEmptyEl.hidden = true;
-  mailDetailEl.hidden = false;
+  mailDetailEl.hidden = true;
+  if (mailLoadingEl) mailLoadingEl.hidden = false;
+  mailSandbox.removeAttribute("srcdoc");
 
   try {
     const detail = await request("/v1/messages/" + encodeURIComponent(id));
+    if (token !== mailLoadToken) return;
     if (detailSubject) detailSubject.textContent = detail.subject || "(无主题)";
     if (detailFrom) detailFrom.textContent = detail.from || detail.envelopeFrom || "未知发件人";
     if (detailTo) detailTo.textContent = Array.isArray(detail.envelopeTo) ? detail.envelopeTo.join(", ") : detail.envelopeTo || "";
@@ -662,24 +694,43 @@ async function selectMail(id) {
     // 纯文本正文与原始头
     plainTextBody.textContent = detail.parsed?.text || "(正文为空)";
     rawHeaders.textContent = formatRawHeaders(detail);
+    if (mailLoadingEl) mailLoadingEl.hidden = true;
+    mailDetailEl.hidden = false;
 
-    // 加载 HTML
-    void loadMailHtml(id);
+    // 加载 HTML 与真正的 RFC822 信头
+    void loadMailHtml(id, token);
+    void loadRawHeaders(id, token, detail);
   } catch (err) {
+    if (token !== mailLoadToken) return;
     console.error("selectMail error:", err);
+    if (mailLoadingEl) mailLoadingEl.hidden = true;
+    mailDetailEl.hidden = false;
     if (detailSubject) detailSubject.textContent = "无法加载邮件详情";
     if (detailSummary) detailSummary.textContent = explain(err);
   }
 }
 
-async function loadMailHtml(id) {
+async function loadMailHtml(id, token) {
   try {
     const res = await request("/v1/messages/" + encodeURIComponent(id) + "/html");
+    if (token !== mailLoadToken) return;
     currentMailHtml = res.html || "";
     renderSandboxHtml(currentMailHtml);
   } catch {
+    if (token !== mailLoadToken) return;
     currentMailHtml = "<p style='color:#888;padding:20px'>该邮件无 HTML 格式内容或解析失败</p>";
     renderSandboxHtml(currentMailHtml);
+  }
+}
+
+async function loadRawHeaders(id, token, detail) {
+  try {
+    const res = await request("/v1/messages/" + encodeURIComponent(id) + "/headers");
+    if (token !== mailLoadToken) return;
+    rawHeaders.textContent = res.headers && res.headers.trim() ? res.headers : formatRawHeaders(detail);
+  } catch {
+    if (token !== mailLoadToken) return;
+    rawHeaders.textContent = formatRawHeaders(detail);
   }
 }
 
@@ -693,6 +744,7 @@ function renderSandboxHtml(html) {
 
 function switchTab(tab) {
   if (tab === "html") tab = "ai";
+  if (tab !== "ai" && tab !== "text" && tab !== "raw") return;
   currentTab = tab;
   document.querySelectorAll(".tab-btn").forEach((b) => {
     if (b.getAttribute("data-tab") === tab) b.classList.add("active");
@@ -716,7 +768,7 @@ async function reclassify(id, button) {
     }, 2000);
   } catch (err) {
     if (button) button.disabled = false;
-    alert("触发重分类失败: " + explain(err));
+    toast("触发重分类失败: " + explain(err));
   }
 }
 
@@ -739,7 +791,7 @@ async function handleTrashMail() {
     await request("/v1/messages/" + encodeURIComponent(id) + "/trash", { method: "POST", body: {} });
     noticeEl.textContent = "邮件已移入垃圾桶";
     setTimeout(() => { if (noticeEl.textContent === "邮件已移入垃圾桶") noticeEl.textContent = ""; }, 3000);
-    const card = listEl.querySelector(`.mail-item[data-id="${id}"]`);
+    const card = findByDataId(listEl, ".mail-item", id);
     if (card) card.remove();
     currentMessages = currentMessages.filter((m) => m.id !== id);
     const nextCard = listEl.querySelector(".mail-item");
@@ -749,6 +801,7 @@ async function handleTrashMail() {
       selectedMailId = null;
       mailDetailEl.hidden = true;
       mailEmptyEl.hidden = false;
+      setMobilePane("list");
     }
     void updateTrashBadge();
   } catch (err) {
@@ -766,7 +819,7 @@ async function handleRestoreMail() {
     await request("/v1/messages/" + encodeURIComponent(id) + "/restore", { method: "POST", body: {} });
     noticeEl.textContent = "邮件已恢复至收件箱";
     setTimeout(() => { if (noticeEl.textContent === "邮件已恢复至收件箱") noticeEl.textContent = ""; }, 3000);
-    const card = listEl.querySelector(`.mail-item[data-id="${id}"]`);
+    const card = findByDataId(listEl, ".mail-item", id);
     if (card) card.remove();
     currentMessages = currentMessages.filter((m) => m.id !== id);
     const nextCard = listEl.querySelector(".mail-item");
@@ -776,6 +829,7 @@ async function handleRestoreMail() {
       selectedMailId = null;
       mailDetailEl.hidden = true;
       mailEmptyEl.hidden = false;
+      setMobilePane("list");
     }
     void updateTrashBadge();
   } catch (err) {
@@ -787,14 +841,14 @@ async function handleRestoreMail() {
 
 async function handleDeleteMail() {
   if (!selectedMailId) return;
-  if (!window.confirm("确定永久删除此邮件吗？此操作无法撤销。")) return;
+  if (!(await askConfirm("确定永久删除此邮件吗？此操作无法撤销。"))) return;
   const id = selectedMailId;
   if (btnDeleteMail) btnDeleteMail.disabled = true;
   try {
     await request("/v1/messages/" + encodeURIComponent(id), { method: "DELETE" });
     noticeEl.textContent = "邮件已彻底删除";
     setTimeout(() => { if (noticeEl.textContent === "邮件已彻底删除") noticeEl.textContent = ""; }, 3000);
-    const card = listEl.querySelector(`.mail-item[data-id="${id}"]`);
+    const card = findByDataId(listEl, ".mail-item", id);
     if (card) card.remove();
     currentMessages = currentMessages.filter((m) => m.id !== id);
     const nextCard = listEl.querySelector(".mail-item");
@@ -804,6 +858,7 @@ async function handleDeleteMail() {
       selectedMailId = null;
       mailDetailEl.hidden = true;
       mailEmptyEl.hidden = false;
+      setMobilePane("list");
     }
     void updateTrashBadge();
   } catch (err) {
@@ -814,7 +869,7 @@ async function handleDeleteMail() {
 }
 
 async function handleEmptyTrash() {
-  if (!window.confirm("确定清空垃圾桶内全部邮件吗？此操作无法撤销。")) return;
+  if (!(await askConfirm("确定清空垃圾桶内全部邮件吗？此操作无法撤销。"))) return;
   if (emptyTrashBtn) emptyTrashBtn.disabled = true;
   try {
     const res = await request("/v1/messages/empty-trash", { method: "POST", body: {} });
@@ -822,7 +877,9 @@ async function handleEmptyTrash() {
     setTimeout(() => { if (noticeEl.textContent.startsWith("垃圾桶已清空")) noticeEl.textContent = ""; }, 3000);
     selectedMailId = null;
     mailDetailEl.hidden = true;
+    if (mailLoadingEl) mailLoadingEl.hidden = true;
     mailEmptyEl.hidden = false;
+    setMobilePane("list");
     await reloadTrash();
     void updateTrashBadge();
   } catch (err) {
@@ -864,7 +921,7 @@ async function loadDlqJobs(statusFilter = "") {
     }
 
     if (currentJobs.length > 0 && !selectedJobId) {
-      selectDlqJob(currentJobs[0].id);
+      selectDlqJob(currentJobs[0].id, { keepListOnNarrow: true });
     }
   } catch (err) {
     noticeEl.textContent = explain(err);
@@ -902,8 +959,9 @@ function createDlqJobItem(job) {
   return item;
 }
 
-function selectDlqJob(id) {
+function selectDlqJob(id, options = {}) {
   selectedJobId = id;
+  if (!options.keepListOnNarrow) setMobilePane("detail");
   document.querySelectorAll(".dlq-job-item").forEach((el) => {
     if (el.dataset.id === id) el.classList.add("selected");
     else el.classList.remove("selected");
@@ -917,7 +975,6 @@ function selectDlqJob(id) {
 
   const retryBtn = document.querySelector("#btn-dlq-single-retry");
   retryBtn.hidden = false;
-  retryBtn.onclick = () => void retrySingleJob(job.id);
 
   const grid = document.createElement("div");
   grid.className = "meta-grid";
@@ -942,30 +999,30 @@ function selectDlqJob(id) {
 async function retrySingleJob(id) {
   try {
     await request("/v1/jobs/" + encodeURIComponent(id) + "/retry", { method: "POST", body: {} });
-    alert("该任务已成功重入队，Worker 正在调度执行！");
+    toast("该任务已成功重入队，Worker 正在调度执行");
     await loadDlqJobs();
     void updateDlqBadge();
   } catch (err) {
-    alert("任务重试失败: " + explain(err));
+    toast("任务重试失败: " + explain(err));
   }
 }
 
 async function retryAllDead() {
-  if (!confirm("确定要将所有死信/失败任务全部重入队重试吗？")) return;
+  if (!(await askConfirm("确定要将所有死信和失败任务全部重入队重试吗？"))) return;
   try {
     const res = await request("/v1/jobs/retry-all", { method: "POST", body: {} });
-    alert(`成功救回 ${res.count || 0} 个死信任务！`);
+    toast(`成功救回 ${res.count || 0} 个死信任务`);
     await loadDlqJobs();
     void updateDlqBadge();
   } catch (err) {
-    alert("批量重试失败: " + explain(err));
+    toast("批量重试失败: " + explain(err));
   }
 }
 
 async function updateDlqBadge() {
   try {
-    const res = await request("/v1/jobs?status=dead");
-    const count = Array.isArray(res.items) ? res.items.length : 0;
+    const res = await request("/v1/jobs/count?status=dead");
+    const count = typeof res.count === "number" ? res.count : 0;
     if (count > 0) {
       badgeDlq.hidden = false;
       badgeDlq.textContent = String(count);
@@ -999,22 +1056,9 @@ async function loadPromptsView() {
       listEl.append(card);
     }
 
-    const promptId = promptsRes.defaultPromptId || "classify-v1";
-    const detail = await request("/v1/prompts/" + encodeURIComponent(promptId));
+    currentPromptId = promptsRes.defaultPromptId || "classify-v1";
+    const detail = await request("/v1/prompts/" + encodeURIComponent(currentPromptId));
     document.querySelector("#prompt-editor").value = detail.content || "";
-
-    document.querySelector("#btn-save-prompt").onclick = async () => {
-      const newContent = document.querySelector("#prompt-editor").value;
-      try {
-        await request("/v1/prompts/" + encodeURIComponent(promptId), {
-          method: "PUT",
-          body: { content: newContent },
-        });
-        alert("提示词策略已成功更新并热重载生效！");
-      } catch (err) {
-        alert("保存提示词失败: " + explain(err));
-      }
-    };
   } catch (err) {
     noticeEl.textContent = explain(err);
   }
@@ -1043,24 +1087,6 @@ async function loadMailboxesView() {
       tr.append(tdAddr, tdFirst, tdLast, tdNotes);
       tbody.append(tr);
     }
-
-    document.querySelector("#mailbox-form").onsubmit = async (e) => {
-      e.preventDefault();
-      try {
-        await request("/v1/mailbox-history", {
-          method: "POST",
-          body: {
-            domain: document.querySelector("#mb-domain").value,
-            localpart: document.querySelector("#mb-localpart").value,
-            notes: document.querySelector("#mb-notes").value,
-          },
-        });
-        alert("收件画像已保存！");
-        await loadMailboxesView();
-      } catch (err) {
-        alert("保存画像失败: " + explain(err));
-      }
-    };
   } catch (err) {
     noticeEl.textContent = explain(err);
   }
@@ -1073,32 +1099,99 @@ async function loadStatsView() {
   try {
     const res = await request("/v1/stats");
     const total = res.total || {};
-    document.querySelector("#stat-total-count").textContent = String(
-      (total.legit || 0) + (total.spam || 0) + (total.phish || 0) + (total.malware || 0) + (total.gray || 0) + (total.unlabeled || 0)
-    );
+    const sum = Object.values(total).reduce((acc, n) => acc + (typeof n === "number" ? n : 0), 0);
+    document.querySelector("#stat-total-count").textContent = String(sum);
     document.querySelector("#stat-phish-count").textContent = String(total.phish || 0);
     document.querySelector("#stat-malware-count").textContent = String(total.malware || 0);
     document.querySelector("#stat-spam-count").textContent = String(total.spam || 0);
     document.querySelector("#stat-legit-count").textContent = String(total.legit || 0);
+    const promo = document.querySelector("#stat-promo-count");
+    const gray = document.querySelector("#stat-gray-count");
+    if (promo) promo.textContent = String(total["unsolicited-admin"] || 0);
+    if (gray) gray.textContent = String(total.gray || 0);
+    renderTrend(Array.isArray(res.daily) ? res.daily : []);
   } catch (err) {
     noticeEl.textContent = explain(err);
+  }
+}
+
+function renderTrend(days) {
+  const host = document.querySelector("#stat-trend");
+  if (!host) return;
+  host.replaceChildren();
+  const max = Math.max(1, ...days.map((day) => day.total || 0));
+  for (const day of days) {
+    const col = document.createElement("div");
+    col.className = "trend-col";
+    const bar = document.createElement("div");
+    bar.className = "trend-bar";
+    const total = day.total || 0;
+    bar.style.height = Math.max(2, Math.round((total / max) * 100)) + "%";
+    const labelName = (key) => LABEL_NAMES[key] || key;
+    const parts = Object.entries(day.labels || {})
+      .filter(([, n]) => n > 0)
+      .map(([key, n]) => `${labelName(key)} ${n}`);
+    bar.title = `${day.day} 共 ${total} 封` + (parts.length ? " · " + parts.join("，") : "");
+    const caption = document.createElement("span");
+    caption.className = "trend-label";
+    caption.textContent = String(day.day || "").slice(5);
+    col.append(bar, caption);
+    host.append(col);
+  }
+}
+
+async function saveCurrentPrompt() {
+  const editor = document.querySelector("#prompt-editor");
+  try {
+    await request("/v1/prompts/" + encodeURIComponent(currentPromptId), {
+      method: "PUT",
+      body: { content: editor ? editor.value : "" },
+    });
+    toast("提示词已保存，下次分类会用这份新内容");
+  } catch (err) {
+    toast("保存提示词失败: " + explain(err));
+  }
+}
+
+async function saveMailbox() {
+  try {
+    await request("/v1/mailbox-history", {
+      method: "POST",
+      body: {
+        domain: document.querySelector("#mb-domain").value,
+        localpart: document.querySelector("#mb-localpart").value,
+        notes: document.querySelector("#mb-notes").value,
+      },
+    });
+    toast("收件画像已保存");
+    await loadMailboxesView();
+  } catch (err) {
+    toast("保存画像失败: " + explain(err));
   }
 }
 
 // ==================== 通用网络与工具函数 ====================
 
 async function request(url, options = {}) {
-  const headers = new Headers();
-  if (options.body !== undefined) {
-    headers.set("content-type", "application/json");
-    headers.set("x-csrf-token", await fetchCsrf());
+  const send = async (force) => {
+    const headers = new Headers();
+    if (options.body !== undefined) {
+      headers.set("content-type", "application/json");
+      headers.set("x-csrf-token", await fetchCsrf(force));
+    }
+    return fetch(url, {
+      method: options.method || "GET",
+      headers,
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      credentials: "same-origin",
+    });
+  };
+  let response = await send(false);
+  if (response.status === 403 && options.body !== undefined) {
+    await response.text().catch(() => "");
+    csrfToken = null;
+    response = await send(true);
   }
-  const response = await fetch(url, {
-    method: options.method || "GET",
-    headers,
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
-    credentials: "same-origin",
-  });
   const raw = await response.text();
   let data = null;
   if (raw) {
@@ -1116,7 +1209,8 @@ async function request(url, options = {}) {
   return data || {};
 }
 
-async function fetchCsrf() {
+async function fetchCsrf(force) {
+  if (csrfToken && !force) return csrfToken;
   const response = await fetch("/v1/csrf", { credentials: "same-origin" });
   if (!response.ok) {
     const error = new Error("csrf");
@@ -1124,7 +1218,89 @@ async function fetchCsrf() {
     throw error;
   }
   const data = await response.json();
-  return data.token;
+  csrfToken = data.token;
+  return csrfToken;
+}
+
+async function pollLive() {
+  if (document.hidden || appEl.hidden) return;
+  void updateDlqBadge();
+  void updateTrashBadge();
+  if (currentView !== "inbox" && currentView !== "trash") return;
+  if (currentMessages.length > 40) return;
+  try {
+    const params = new URLSearchParams();
+    params.set("trashed", currentView === "trash" ? "true" : "false");
+    params.set("limit", "40");
+    if (currentView === "inbox" && labelInput.value) params.set("label", labelInput.value);
+    const q = currentView === "trash" ? (trashQueryInput ? trashQueryInput.value.trim() : "") : (queryInput ? queryInput.value.trim() : "");
+    if (q) params.set("q", q);
+    const page = await request("/v1/messages?" + params.toString());
+    const items = Array.isArray(page.items) ? page.items : [];
+    const same =
+      items.length === currentMessages.length &&
+      items.every((item, index) => item.id === currentMessages[index]?.id && item.label === currentMessages[index]?.label);
+    if (same) return;
+    if (currentView === "trash") await reloadTrash();
+    else await reloadMessages();
+  } catch {
+    // The next tick tries again.
+  }
+}
+
+function setMobilePane(pane) {
+  if (appEl) appEl.dataset.pane = pane;
+}
+
+function isTypingTarget(target) {
+  if (!target || target.nodeType !== 1) return false;
+  const tag = target.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target.isContentEditable;
+}
+
+function findByDataId(root, selector, id) {
+  if (!root || !id) return null;
+  for (const node of root.querySelectorAll(selector)) {
+    if (node.dataset.id === id) return node;
+  }
+  return null;
+}
+
+function toast(message) {
+  if (!toastEl) return;
+  toastEl.textContent = message;
+  toastEl.hidden = false;
+  window.clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => {
+    toastEl.hidden = true;
+  }, 3200);
+}
+
+function askConfirm(message) {
+  if (!confirmModal || !confirmOk || !confirmCancel || !confirmText) {
+    return Promise.resolve(false);
+  }
+  confirmText.textContent = message;
+  confirmModal.hidden = false;
+  confirmOk.focus();
+  return new Promise((resolve) => {
+    const finish = (ok) => {
+      confirmModal.hidden = true;
+      confirmOk.removeEventListener("click", onOk);
+      confirmCancel.removeEventListener("click", onCancel);
+      document.removeEventListener("keydown", onKey);
+      resolve(ok);
+    };
+    const onOk = () => finish(true);
+    const onCancel = () => finish(false);
+    const onKey = (event) => {
+      if (event.key === "Escape") finish(false);
+      else if (event.key === "Enter") finish(true);
+    };
+    confirmOk.addEventListener("click", onOk);
+    confirmCancel.addEventListener("click", onCancel);
+    document.addEventListener("keydown", onKey);
+  });
 }
 
 function explain(err) {

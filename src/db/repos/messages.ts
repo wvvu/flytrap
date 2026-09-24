@@ -261,26 +261,104 @@ export function restoreMessage(db: Db, id: string, now: number): void {
   db.prepare("UPDATE messages SET trashed_at = NULL, updated_at = ? WHERE id = ?").run(now, id);
 }
 
-export function deleteMessage(db: Db, id: string): void {
-  db.transaction(() => {
+export interface PurgedFiles {
+  count: number;
+  paths: string[];
+}
+
+export function deleteMessage(db: Db, id: string, purgedAt: number): PurgedFiles | null {
+  return db.transaction(() => {
+    const row = db.prepare("SELECT sha256, raw_path FROM messages WHERE id = ?").get(id) as
+      | { sha256: string; raw_path: string }
+      | undefined;
+    if (!row) return null;
+    const paths = [row.raw_path, ...orphanAttachmentPaths(db, "message", id)];
+    rememberPurged(db, [row.sha256], purgedAt);
     db.prepare("DELETE FROM message_attachments WHERE message_id = ?").run(id);
+    deleteUnlinkedAttachments(db);
     db.prepare("DELETE FROM deliveries WHERE message_id = ?").run(id);
     db.prepare("DELETE FROM jobs WHERE message_id = ?").run(id);
     db.prepare("DELETE FROM messages WHERE id = ?").run(id);
+    return { count: 1, paths };
   })();
 }
 
-export function emptyTrash(db: Db): number {
+export function emptyTrash(db: Db, purgedAt: number): PurgedFiles {
   return db.transaction(() => {
-    const rows = db.prepare("SELECT id FROM messages WHERE trashed_at IS NOT NULL").all() as Array<{ id: string }>;
-    for (const row of rows) {
-      db.prepare("DELETE FROM message_attachments WHERE message_id = ?").run(row.id);
-      db.prepare("DELETE FROM deliveries WHERE message_id = ?").run(row.id);
-      db.prepare("DELETE FROM jobs WHERE message_id = ?").run(row.id);
-      db.prepare("DELETE FROM messages WHERE id = ?").run(row.id);
-    }
-    return rows.length;
+    const rows = db
+      .prepare("SELECT sha256, raw_path FROM messages WHERE trashed_at IS NOT NULL")
+      .all() as Array<{ sha256: string; raw_path: string }>;
+    if (rows.length === 0) return { count: 0, paths: [] };
+    const paths = [...rows.map((row) => row.raw_path), ...orphanAttachmentPaths(db, "trash")];
+    rememberPurged(
+      db,
+      rows.map((row) => row.sha256),
+      purgedAt,
+    );
+    db.prepare(
+      `DELETE FROM message_attachments
+       WHERE message_id IN (SELECT id FROM messages WHERE trashed_at IS NOT NULL)`,
+    ).run();
+    deleteUnlinkedAttachments(db);
+    db.prepare(
+      `DELETE FROM deliveries
+       WHERE message_id IN (SELECT id FROM messages WHERE trashed_at IS NOT NULL)`,
+    ).run();
+    db.prepare(
+      `DELETE FROM jobs
+       WHERE message_id IN (SELECT id FROM messages WHERE trashed_at IS NOT NULL)`,
+    ).run();
+    const result = db.prepare("DELETE FROM messages WHERE trashed_at IS NOT NULL").run();
+    return { count: result.changes, paths };
   })();
+}
+
+function rememberPurged(db: Db, hashes: string[], purgedAt: number): void {
+  const insert = db.prepare(
+    `INSERT INTO purged_messages (sha256, purged_at) VALUES (?, ?)
+     ON CONFLICT(sha256) DO UPDATE SET purged_at = excluded.purged_at`,
+  );
+  for (const hash of hashes) insert.run(hash, purgedAt);
+}
+
+function orphanAttachmentPaths(db: Db, scope: "message" | "trash", messageId?: string): string[] {
+  const rows =
+    scope === "message"
+      ? (db
+          .prepare(
+            `SELECT a.path AS path
+             FROM attachments a
+             WHERE a.sha256 IN (SELECT sha256 FROM message_attachments WHERE message_id = ?)
+               AND NOT EXISTS (
+                 SELECT 1 FROM message_attachments other
+                 WHERE other.sha256 = a.sha256 AND other.message_id != ?
+               )`,
+          )
+          .all(messageId, messageId) as Array<{ path: string }>)
+      : (db
+          .prepare(
+            `SELECT a.path AS path
+             FROM attachments a
+             WHERE EXISTS (
+               SELECT 1 FROM message_attachments ma
+               JOIN messages m ON m.id = ma.message_id
+               WHERE ma.sha256 = a.sha256 AND m.trashed_at IS NOT NULL
+             )
+               AND NOT EXISTS (
+                 SELECT 1 FROM message_attachments ma
+                 JOIN messages m ON m.id = ma.message_id
+                 WHERE ma.sha256 = a.sha256 AND m.trashed_at IS NULL
+               )`,
+          )
+          .all() as Array<{ path: string }>);
+  return rows.map((row) => row.path);
+}
+
+function deleteUnlinkedAttachments(db: Db): void {
+  db.prepare(
+    `DELETE FROM attachments
+     WHERE NOT EXISTS (SELECT 1 FROM message_attachments ma WHERE ma.sha256 = attachments.sha256)`,
+  ).run();
 }
 
 export function countTrash(db: Db): number {
