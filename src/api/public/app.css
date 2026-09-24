@@ -795,15 +795,32 @@ input:focus, select:focus, textarea:focus {
   background: rgba(59, 130, 246, 0.15);
 }
 
-/* Tabs 切换栏 */
+/* Tabs 切换栏与平齐操作区 */
 .tab-bar {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
   border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 2px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.tab-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tab-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
 }
 
 .tab-btn {
-  padding: 8px 16px;
+  padding: 8px 14px;
   font-size: 13px;
   font-weight: 600;
   background: transparent;
@@ -833,68 +850,122 @@ input:focus, select:focus, textarea:focus {
   display: flex;
 }
 
-/* AI 研判详情卡片 */
-.ai-verdict-box {
+/* AI 研判详情卡片与摘要 */
+.summary-card {
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: 12px;
-  padding: 18px;
+  padding: 14px 18px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 8px;
 }
 
-.verdict-score-row {
+.summary-header {
   display: flex;
   align-items: center;
-  gap: 14px;
-}
-
-.score-label {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-muted);
-  width: 100px;
-}
-
-.progress-bar-wrap {
-  flex: 1;
-  height: 8px;
-  background: var(--bg-workspace);
-  border-radius: 999px;
-  overflow: hidden;
-}
-
-.progress-bar-fill {
-  height: 100%;
-  background: var(--primary);
-  border-radius: 999px;
-  transition: width 0.3s ease;
-}
-
-.score-num {
-  font-family: var(--font-mono);
-  font-size: 14px;
-  font-weight: 700;
-  width: 44px;
-  text-align: right;
-}
-
-.summary-card {
-  border-top: 1px solid var(--border-subtle);
-  padding-top: 12px;
+  justify-content: space-between;
 }
 
 .summary-label {
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+/* 模型判别置信度紧凑型 Chip */
+.confidence-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.chip-label {
   color: var(--text-dim);
-  margin-bottom: 4px;
+}
+
+.chip-bar {
+  width: 44px;
+  height: 5px;
+  background: rgba(148, 163, 184, 0.25);
+  border-radius: 3px;
+  overflow: hidden;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.chip-fill {
+  display: block;
+  height: 100%;
+  width: 0%;
+  background: var(--primary);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.chip-percent {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--primary);
 }
 
 .summary-text {
   font-size: 14px;
   color: var(--text-main);
   line-height: 1.6;
+}
+
+/* 原文视觉呈现 (安全沙箱平铺) */
+.inlined-preview-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.section-subhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px;
+}
+
+.subhead-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.subhead-hint {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.inlined-sandbox-wrap {
+  width: 100%;
+  height: 560px;
+  min-height: 380px;
+  max-height: 850px;
+  resize: vertical;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.inlined-sandbox-wrap iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #ffffff;
+  display: block;
 }
 
 .ai-section h4 {

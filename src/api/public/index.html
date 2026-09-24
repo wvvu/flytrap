@@ -156,13 +156,6 @@
             <header class="detail-header">
               <div class="detail-title-line">
                 <h1 id="detail-subject">(无主题)</h1>
-                <div class="detail-actions">
-                  <button type="button" id="btn-trash-mail" class="btn-sm btn-danger-ghost" title="移入垃圾桶">移入垃圾桶</button>
-                  <button type="button" id="btn-restore-mail" class="btn-sm" title="恢复至收件箱" hidden>↩️ 恢复邮件</button>
-                  <button type="button" id="btn-delete-mail" class="btn-sm btn-danger" title="永久彻底删除" hidden>❌ 彻底删除</button>
-                  <button type="button" id="btn-reclassify" class="btn-sm">重分类</button>
-                  <a id="btn-download-eml" class="btn-sm btn-link" target="_blank" download>下载 EML</a>
-                </div>
               </div>
               <div class="meta-grid">
                 <div class="meta-item"><span class="meta-label">发件人：</span><span id="detail-from" class="meta-val"></span></div>
@@ -191,29 +184,45 @@
               </div>
             </header>
 
-            <!-- 详情 Tab 切换栏 -->
+            <!-- 详情 Tab 切换栏与平齐操作区 -->
             <div class="tab-bar">
-              <button type="button" class="tab-btn active" data-tab="ai">🧠 AI 智能研判</button>
-              <button type="button" class="tab-btn" data-tab="html">🌐 安全 HTML 预览</button>
-              <button type="button" class="tab-btn" data-tab="text">📄 纯文本正文</button>
-              <button type="button" class="tab-btn" data-tab="raw">🔍 RFC822 原文与鉴权</button>
+              <div class="tab-group">
+                <button type="button" class="tab-btn active" data-tab="ai">🧠 AI 智能研判</button>
+                <button type="button" class="tab-btn" data-tab="text">📄 纯文本正文</button>
+                <button type="button" class="tab-btn" data-tab="raw">🔍 RFC822 原文与鉴权</button>
+              </div>
+              <div class="tab-actions">
+                <a id="btn-download-eml" class="btn-sm btn-link" target="_blank" download title="下载原始 EML">📥 下载 EML</a>
+                <button type="button" id="btn-trash-mail" class="btn-sm btn-danger-ghost" title="移入垃圾桶">🗑️ 移入垃圾桶</button>
+                <button type="button" id="btn-restore-mail" class="btn-sm" title="恢复至收件箱" hidden>↩️ 恢复邮件</button>
+                <button type="button" id="btn-delete-mail" class="btn-sm btn-danger" title="永久彻底删除" hidden>❌ 彻底删除</button>
+              </div>
             </div>
 
-            <!-- Tab 1: AI 研判视图 -->
+            <!-- Tab 1: AI 研判视图 (集成单页沙箱正文与特征流) -->
             <div id="panel-ai" class="tab-panel active">
-              <div class="ai-verdict-box">
-                <div class="verdict-score-row">
-                  <span class="score-label">模型判别置信度</span>
-                  <div class="progress-bar-wrap">
-                    <div id="verdict-bar" class="progress-bar-fill" style="width: 0%"></div>
+              <div class="summary-card">
+                <div class="summary-header">
+                  <span class="summary-label">研判结论摘要</span>
+                  <div class="confidence-chip" title="模型判别置信度">
+                    <span class="chip-label">AI 置信度</span>
+                    <div class="chip-bar"><div id="verdict-bar" class="chip-fill"></div></div>
+                    <span id="verdict-percent" class="chip-percent">0%</span>
                   </div>
-                  <span id="verdict-percent" class="score-num">0%</span>
                 </div>
-                <div class="summary-card">
-                  <p class="summary-label">研判结论摘要</p>
-                  <p id="detail-summary" class="summary-text"></p>
-                </div>
+                <p id="detail-summary" class="summary-text"></p>
               </div>
+
+              <!-- 原文视觉呈现 (安全沙箱) 直接平铺于正文中 -->
+              <section class="inlined-preview-section">
+                <div class="section-subhead">
+                  <span class="subhead-title">🌐 邮件正文呈现 (安全沙箱)</span>
+                  <span class="subhead-hint">已隔离脚本执行与外部追踪像素</span>
+                </div>
+                <div class="html-container inlined-sandbox-wrap">
+                  <iframe id="mail-sandbox" sandbox="allow-same-origin" title="邮件 HTML 安全沙箱"></iframe>
+                </div>
+              </section>
 
               <details class="ai-section collapsible-section" id="section-signals">
                 <summary class="collapsible-summary">
@@ -234,13 +243,6 @@
               <div class="ai-section">
                 <h4>附件清单 (<span id="attachment-count">0</span>)</h4>
                 <div id="attachments-list" class="attachments-grid"></div>
-              </div>
-            </div>
-
-            <!-- Tab 2: HTML 沙箱预览视图 -->
-            <div id="panel-html" class="tab-panel">
-              <div class="html-container">
-                <iframe id="mail-sandbox" sandbox="allow-same-origin" title="邮件 HTML 安全沙箱"></iframe>
               </div>
             </div>
 

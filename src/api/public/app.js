@@ -191,14 +191,16 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
   });
 });
 
-btnLoadImages.addEventListener("click", () => {
+btnLoadImages?.addEventListener("click", () => {
   allowExternalImages = true;
   renderSandboxHtml(currentMailHtml);
-  btnLoadImages.textContent = "已允许加载外链图片";
-  btnLoadImages.disabled = true;
+  if (btnLoadImages) {
+    btnLoadImages.textContent = "已允许加载外链图片";
+    btnLoadImages.disabled = true;
+  }
 });
 
-btnReclassify.addEventListener("click", () => {
+btnReclassify?.addEventListener("click", () => {
   if (selectedMailId) void reclassify(selectedMailId, btnReclassify);
 });
 
@@ -567,9 +569,9 @@ async function selectMail(id) {
       }
     }
 
-    verdictBar.style.width = Math.round(confidence * 100) + "%";
-    verdictPercent.textContent = Math.round(confidence * 100) + "%";
-    detailSummary.textContent = detail.aiResult?.summary || "尚未生成 AI 研判摘要";
+    if (verdictBar) verdictBar.style.width = Math.round(confidence * 100) + "%";
+    if (verdictPercent) verdictPercent.textContent = Math.round(confidence * 100) + "%";
+    if (detailSummary) detailSummary.textContent = detail.aiResult?.summary || "尚未生成 AI 研判摘要";
 
     // 威胁信号指纹
     signalsList.replaceChildren();
@@ -690,6 +692,7 @@ function renderSandboxHtml(html) {
 }
 
 function switchTab(tab) {
+  if (tab === "html") tab = "ai";
   currentTab = tab;
   document.querySelectorAll(".tab-btn").forEach((b) => {
     if (b.getAttribute("data-tab") === tab) b.classList.add("active");
@@ -701,16 +704,18 @@ function switchTab(tab) {
 }
 
 async function reclassify(id, button) {
-  button.disabled = true;
+  if (button) button.disabled = true;
   try {
     await request("/v1/messages/" + encodeURIComponent(id) + "/reclassify", { method: "POST", body: {} });
-    button.textContent = "已入队";
+    if (button) button.textContent = "已入队";
     setTimeout(() => {
-      button.textContent = "重分类";
-      button.disabled = false;
+      if (button) {
+        button.textContent = "重分类";
+        button.disabled = false;
+      }
     }, 2000);
   } catch (err) {
-    button.disabled = false;
+    if (button) button.disabled = false;
     alert("触发重分类失败: " + explain(err));
   }
 }
