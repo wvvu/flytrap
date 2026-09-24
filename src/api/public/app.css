@@ -320,6 +320,35 @@ input:focus, select:focus, textarea:focus {
   letter-spacing: -0.02em;
 }
 
+.stream-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.filter-select {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-main);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.filter-select:focus {
+  border-color: var(--primary);
+}
+
+.stream-subtitle {
+  font-size: 12px;
+  color: var(--text-dim);
+  padding: 0 0 6px;
+}
+
 .btn-icon {
   background: transparent;
   border: none;
@@ -496,9 +525,12 @@ input:focus, select:focus, textarea:focus {
 .verdict-tag[data-label="phish"] { background: var(--phish-bg); color: var(--phish); }
 .verdict-tag[data-label="malware"] { background: var(--malware-bg); color: var(--malware); }
 .verdict-tag[data-label="spam"] { background: var(--spam-bg); color: var(--spam); }
-.verdict-tag[data-label="unsolicited-admin"] { background: var(--spam-bg); color: var(--spam); }
+.verdict-tag[data-label="unsolicited-admin"] { background: rgba(168, 85, 247, 0.14); color: #c084fc; }
 .verdict-tag[data-label="legit"] { background: var(--legit-bg); color: var(--legit); }
 .verdict-tag[data-label="gray"], .verdict-tag[data-label="none"] { background: var(--gray-bg); color: var(--gray); }
+
+.pill-promo { color: #c084fc; }
+.pill-promo.active { background: #a855f7 !important; color: #fff !important; border-color: #a855f7 !important; }
 
 .btn-more {
   padding: 10px;
@@ -826,6 +858,135 @@ input:focus, select:focus, textarea:focus {
   justify-content: space-between;
   align-items: center;
   font-size: 13px;
+}
+
+/* 折叠区块 (Collapsible Details) */
+.collapsible-section {
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-card);
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+
+.collapsible-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+  background: var(--bg-card);
+  transition: background 0.15s ease;
+}
+
+.collapsible-summary:hover {
+  background: var(--bg-card-hover);
+}
+
+.collapsible-summary::marker,
+.collapsible-summary::-webkit-details-marker {
+  display: none;
+}
+
+.collapsible-summary::before {
+  content: "▸";
+  display: inline-block;
+  margin-right: 8px;
+  font-size: 11px;
+  transition: transform 0.2s ease;
+  color: var(--text-dim);
+}
+
+details[open] > .collapsible-summary::before {
+  transform: rotate(90deg);
+}
+
+.collapsible-section .signals-grid,
+.collapsible-section .urls-grid {
+  padding: 12px 14px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* 设置分类导航 (Column 2 Settings Stream) */
+.settings-nav-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  margin: 4px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
+}
+
+.settings-nav-item:hover {
+  background: var(--bg-card-hover);
+}
+
+.settings-nav-item.active {
+  background: var(--bg-card-active);
+  border-color: var(--primary);
+}
+
+.settings-nav-icon {
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.settings-nav-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-nav-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+  margin-bottom: 2px;
+}
+
+.settings-nav-desc {
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
+/* 系统运行状态卡片 (Column 3 System View) */
+.system-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.system-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sys-label {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.sys-val {
+  font-size: 14px;
+  color: var(--text-main);
+  font-family: var(--font-mono);
+}
+
+.sys-status-ok {
+  color: var(--legit);
 }
 
 /* HTML 沙箱容器 */

@@ -1,15 +1,16 @@
 const LABELS = ["legit", "spam", "phish", "malware", "gray", "unsolicited-admin"];
 const LABEL_NAMES = {
   legit: "正常",
-  spam: "垃圾",
   phish: "钓鱼",
   malware: "恶意威胁",
-  gray: "可疑/未知",
-  "unsolicited-admin": "未邀管理邮件",
+  spam: "垃圾",
+  "unsolicited-admin": "推广",
+  gray: "未知/可疑",
 };
 
 let currentTab = "ai";
 let currentView = "inbox";
+let currentSettingCategory = "prompts";
 let selectedMailId = null;
 let selectedJobId = null;
 let currentMailHtml = "";
@@ -27,24 +28,22 @@ const logoutBtn = document.querySelector("#logout");
 const themeBtn = document.querySelector("#btn-theme");
 const themeIcon = document.querySelector("#theme-icon");
 
-// 导航按钮
+// 导航按钮 (收件箱, 死信队列, 系统设置)
 const navInboxBtn = document.querySelector("#nav-inbox");
 const navDlqBtn = document.querySelector("#nav-dlq");
-const navPromptsBtn = document.querySelector("#nav-prompts");
-const navMailboxesBtn = document.querySelector("#nav-mailboxes");
-const navStatsBtn = document.querySelector("#nav-stats");
+const navSettingsBtn = document.querySelector("#nav-settings");
 const badgeDlq = document.querySelector("#badge-dlq");
 
 // 第二列流头部
 const streamInboxHeader = document.querySelector("#stream-inbox-header");
 const streamDlqHeader = document.querySelector("#stream-dlq-header");
-const streamGenericHeader = document.querySelector("#stream-generic-header");
-const streamGenericTitle = document.querySelector("#stream-generic-title");
+const streamSettingsHeader = document.querySelector("#stream-settings-header");
 const listEl = document.querySelector("#list");
 const moreBtn = document.querySelector("#more");
 const noticeEl = document.querySelector("#notice");
 const queryInput = document.querySelector("#q");
 const labelInput = document.querySelector("#label");
+const filterSelect = document.querySelector("#filter-select");
 const refreshBtn = document.querySelector("#btn-refresh");
 const dlqRefreshBtn = document.querySelector("#btn-dlq-refresh");
 const retryAllBtn = document.querySelector("#btn-retry-all");
@@ -55,6 +54,7 @@ const viewDlq = document.querySelector("#view-dlq");
 const viewPrompts = document.querySelector("#view-prompts");
 const viewMailboxes = document.querySelector("#view-mailboxes");
 const viewStats = document.querySelector("#view-stats");
+const viewSystem = document.querySelector("#view-system");
 
 // 邮件阅读器元素
 const mailEmptyEl = document.querySelector("#mail-empty");
@@ -67,9 +67,12 @@ const detailVerdict = document.querySelector("#detail-verdict");
 const detailSummary = document.querySelector("#detail-summary");
 const verdictBar = document.querySelector("#verdict-bar");
 const verdictPercent = document.querySelector("#verdict-percent");
+const sectionSignals = document.querySelector("#section-signals");
+const signalsCountEl = document.querySelector("#signals-count");
 const signalsList = document.querySelector("#signals-list");
-const urlsList = document.querySelector("#urls-list");
+const sectionUrls = document.querySelector("#section-urls");
 const urlCountEl = document.querySelector("#url-count");
+const urlsList = document.querySelector("#urls-list");
 const attachmentsList = document.querySelector("#attachments-list");
 const attachmentCountEl = document.querySelector("#attachment-count");
 const mailSandbox = document.querySelector("#mail-sandbox");
@@ -89,37 +92,46 @@ loginForm.addEventListener("submit", (e) => {
 logoutBtn.addEventListener("click", () => void signOut());
 themeBtn.addEventListener("click", () => toggleTheme());
 
-navInboxBtn.addEventListener("click", () => switchNav("inbox"));
-navDlqBtn.addEventListener("click", () => switchNav("dlq"));
-navPromptsBtn.addEventListener("click", () => switchNav("prompts"));
-navMailboxesBtn.addEventListener("click", () => switchNav("mailboxes"));
-navStatsBtn.addEventListener("click", () => switchNav("stats"));
+navInboxBtn?.addEventListener("click", () => switchNav("inbox"));
+navDlqBtn?.addEventListener("click", () => switchNav("dlq"));
+navSettingsBtn?.addEventListener("click", () => switchNav("settings"));
 
-refreshBtn.addEventListener("click", () => void reloadMessages());
-dlqRefreshBtn.addEventListener("click", () => void loadDlqJobs());
-retryAllBtn.addEventListener("click", () => void retryAllDead());
+refreshBtn?.addEventListener("click", () => void reloadMessages());
+dlqRefreshBtn?.addEventListener("click", () => void loadDlqJobs());
+retryAllBtn?.addEventListener("click", () => void retryAllDead());
 
-document.querySelector("#filters").addEventListener("submit", (e) => {
+document.querySelector("#filters")?.addEventListener("submit", (e) => {
   e.preventDefault();
   void reloadMessages();
 });
 
-queryInput.addEventListener("input", debounce(() => void reloadMessages(), 350));
+queryInput?.addEventListener("input", debounce(() => void reloadMessages(), 350));
 
-moreBtn.addEventListener("click", () => void loadMessagesPage(false));
+filterSelect?.addEventListener("change", () => {
+  labelInput.value = filterSelect.value;
+  const pills = document.querySelectorAll("#label-pills button[data-filter-label]");
+  pills.forEach((p) => {
+    p.classList.toggle("active", p.getAttribute("data-filter-label") === filterSelect.value);
+  });
+  void reloadMessages();
+});
 
 // 标签过滤胶囊点击
-document.querySelector("#label-pills").addEventListener("click", (e) => {
+document.querySelector("#label-pills")?.addEventListener("click", (e) => {
   const target = e.target;
   if (!target || !target.matches("button[data-filter-label]")) return;
   for (const btn of document.querySelectorAll("#label-pills button")) btn.classList.remove("active");
   target.classList.add("active");
-  labelInput.value = target.getAttribute("data-filter-label") || "";
+  const val = target.getAttribute("data-filter-label") || "";
+  labelInput.value = val;
+  if (filterSelect) filterSelect.value = val;
   void reloadMessages();
 });
 
+moreBtn.addEventListener("click", () => void loadMessagesPage(false));
+
 // DLQ 状态胶囊点击
-document.querySelector("#dlq-pills").addEventListener("click", (e) => {
+document.querySelector("#dlq-pills")?.addEventListener("click", (e) => {
   const target = e.target;
   if (!target || !target.matches("button[data-dlq-status]")) return;
   for (const btn of document.querySelectorAll("#dlq-pills button")) btn.classList.remove("active");
@@ -239,49 +251,112 @@ function showApp() {
   appEl.style.display = "grid";
 }
 
+const SETTING_CATEGORIES = [
+  { id: "prompts", icon: "🤖", title: "AI 提示词策略与模型", desc: "System Prompt 策略与模型 Key 池" },
+  { id: "mailboxes", icon: "🛡️", title: "收件画像与蜜罐防线", desc: "受保护域名与诱饵邮箱属性" },
+  { id: "stats", icon: "📊", title: "统计大盘与威胁态势", desc: "邮件捕获总量与威胁分类统计" },
+  { id: "system", icon: "🖥️", title: "系统服务与运行健康", desc: "服务角色、端口监听与系统状态" },
+];
+
 // 视图切换
 async function switchNav(view) {
   currentView = view;
-  const navBtns = [navInboxBtn, navDlqBtn, navPromptsBtn, navMailboxesBtn, navStatsBtn];
-  navBtns.forEach((b) => b.classList.remove("active"));
-  const viewPanels = [viewMail, viewDlq, viewPrompts, viewMailboxes, viewStats];
-  viewPanels.forEach((p) => (p.hidden = true));
+  const navBtns = [navInboxBtn, navDlqBtn, navSettingsBtn];
+  navBtns.forEach((b) => b?.classList.remove("active"));
+  const viewPanels = [viewMail, viewDlq, viewPrompts, viewMailboxes, viewStats, viewSystem];
+  viewPanels.forEach((p) => { if (p) p.hidden = true; });
 
   streamInboxHeader.hidden = true;
   streamDlqHeader.hidden = true;
-  streamGenericHeader.hidden = true;
+  if (streamSettingsHeader) streamSettingsHeader.hidden = true;
   noticeEl.textContent = "";
   listEl.replaceChildren();
   moreBtn.hidden = true;
 
   if (view === "inbox") {
-    navInboxBtn.classList.add("active");
+    navInboxBtn?.classList.add("active");
     streamInboxHeader.hidden = false;
     viewMail.hidden = false;
     await reloadMessages();
   } else if (view === "dlq") {
-    navDlqBtn.classList.add("active");
+    navDlqBtn?.classList.add("active");
     streamDlqHeader.hidden = false;
     viewDlq.hidden = false;
     await loadDlqJobs();
-  } else if (view === "prompts") {
-    navPromptsBtn.classList.add("active");
-    streamGenericHeader.hidden = false;
-    streamGenericTitle.textContent = "提示词版本";
+  } else if (view === "settings") {
+    navSettingsBtn?.classList.add("active");
+    if (streamSettingsHeader) streamSettingsHeader.hidden = false;
+    renderSettingsStream();
+    await switchSettingCategory(currentSettingCategory);
+  }
+}
+
+function renderSettingsStream() {
+  listEl.replaceChildren();
+  for (const cat of SETTING_CATEGORIES) {
+    const item = document.createElement("div");
+    item.className = "settings-nav-item";
+    if (cat.id === currentSettingCategory) item.classList.add("active");
+
+    const icon = document.createElement("span");
+    icon.className = "settings-nav-icon";
+    icon.textContent = cat.icon;
+
+    const textWrap = document.createElement("div");
+    textWrap.className = "settings-nav-text";
+
+    const title = document.createElement("p");
+    title.className = "settings-nav-title";
+    title.textContent = cat.title;
+
+    const desc = document.createElement("p");
+    desc.className = "settings-nav-desc";
+    desc.textContent = cat.desc;
+
+    textWrap.append(title, desc);
+    item.append(icon, textWrap);
+    item.addEventListener("click", () => void switchSettingCategory(cat.id));
+    listEl.append(item);
+  }
+}
+
+async function switchSettingCategory(catId) {
+  currentSettingCategory = catId;
+  const items = listEl.querySelectorAll(".settings-nav-item");
+  items.forEach((it, idx) => {
+    it.classList.toggle("active", SETTING_CATEGORIES[idx]?.id === catId);
+  });
+
+  const settingPanels = [viewPrompts, viewMailboxes, viewStats, viewSystem];
+  settingPanels.forEach((p) => { if (p) p.hidden = true; });
+
+  if (catId === "prompts") {
     viewPrompts.hidden = false;
     await loadPromptsView();
-  } else if (view === "mailboxes") {
-    navMailboxesBtn.classList.add("active");
-    streamGenericHeader.hidden = false;
-    streamGenericTitle.textContent = "收件画像";
+  } else if (catId === "mailboxes") {
     viewMailboxes.hidden = false;
     await loadMailboxesView();
-  } else if (view === "stats") {
-    navStatsBtn.classList.add("active");
-    streamGenericHeader.hidden = false;
-    streamGenericTitle.textContent = "统计与态势";
+  } else if (catId === "stats") {
     viewStats.hidden = false;
     await loadStatsView();
+  } else if (catId === "system") {
+    viewSystem.hidden = false;
+    await loadSystemView();
+  }
+}
+
+async function loadSystemView() {
+  try {
+    const health = await request("/healthz");
+    const me = await request("/v1/me");
+    const sysUser = document.querySelector("#sys-user");
+    const sysRoles = document.querySelector("#sys-roles");
+    const sysDb = document.querySelector("#sys-db");
+    if (sysUser) sysUser.textContent = me.user || "admin";
+    if (sysRoles) sysRoles.textContent = (health.roles || []).join(", ") || "smtp, worker, api";
+    if (sysDb) sysDb.textContent = health.db === "ok" ? "SQLite (WAL 模式正常)" : "异常";
+  } catch (err) {
+    noticeEl.textContent = explain(err);
   }
 }
 
@@ -380,6 +455,10 @@ async function selectMail(id) {
   btnLoadImages.textContent = "允许加载外链图片";
   btnLoadImages.disabled = false;
 
+  // 默认折叠威胁指纹与外链
+  if (sectionSignals) sectionSignals.open = false;
+  if (sectionUrls) sectionUrls.open = false;
+
   // 更新左侧列表的高亮状态
   document.querySelectorAll(".mail-item").forEach((el) => {
     if (el.dataset.id === id) el.classList.add("selected");
@@ -408,6 +487,7 @@ async function selectMail(id) {
     // 威胁信号指纹
     signalsList.replaceChildren();
     const signals = detail.aiResult?.signals || [];
+    if (signalsCountEl) signalsCountEl.textContent = String(signals.length);
     if (signals.length === 0) {
       const emptySig = document.createElement("span");
       emptySig.className = "text-dim";

@@ -47,17 +47,9 @@
             <span class="label">死信队列</span>
             <span class="badge badge-alert" id="badge-dlq" hidden>0</span>
           </button>
-          <button type="button" class="rail-btn" id="nav-prompts" title="AI 策略与模型 (P)">
-            <span class="icon">🤖</span>
-            <span class="label">AI 策略</span>
-          </button>
-          <button type="button" class="rail-btn" id="nav-mailboxes" title="收件画像 (M)">
-            <span class="icon">🛡️</span>
-            <span class="label">收件画像</span>
-          </button>
-          <button type="button" class="rail-btn" id="nav-stats" title="统计分析 (S)">
-            <span class="icon">📊</span>
-            <span class="label">统计</span>
+          <button type="button" class="rail-btn" id="nav-settings" title="系统设置 (S)">
+            <span class="icon">⚙️</span>
+            <span class="label">设置</span>
           </button>
         </div>
         <div class="rail-bottom">
@@ -75,20 +67,32 @@
         <!-- 收件箱模式的顶部过滤栏 -->
         <div id="stream-inbox-header" class="stream-header">
           <div class="stream-title-row">
-            <h2 id="stream-title">所有收件</h2>
-            <button type="button" id="btn-refresh" class="btn-icon" title="刷新列表 (R)">↻</button>
+            <h2 id="stream-title">收件流</h2>
+            <div class="stream-actions">
+              <select id="filter-select" class="filter-select" title="按研判分类过滤">
+                <option value="legit" selected>📬 正常邮件</option>
+                <option value="">🌐 全部邮件</option>
+                <option value="phish">🚨 钓鱼欺诈</option>
+                <option value="malware">☣️ 恶意攻击</option>
+                <option value="spam">🗑️ 垃圾邮件</option>
+                <option value="unsolicited-admin">📢 推广营销</option>
+                <option value="gray">❓ 未知/可疑</option>
+              </select>
+              <button type="button" id="btn-refresh" class="btn-icon" title="刷新列表 (R)">↻</button>
+            </div>
           </div>
           <form id="filters" class="search-box">
-            <input id="q" type="search" maxlength="200" placeholder="搜索主题、发件人、Message-ID...">
-            <input id="label" type="hidden" value="">
+            <input id="q" type="search" maxlength="200" placeholder="搜索主题、发件人...">
+            <input id="label" type="hidden" value="legit">
             <input id="status" type="hidden" value="">
           </form>
           <div class="pills-scroll" id="label-pills">
-            <button type="button" class="pill active" data-filter-label="">全部</button>
+            <button type="button" class="pill pill-legit active" data-filter-label="legit">正常</button>
+            <button type="button" class="pill" data-filter-label="">全部</button>
             <button type="button" class="pill pill-phish" data-filter-label="phish">钓鱼</button>
             <button type="button" class="pill pill-malware" data-filter-label="malware">恶意</button>
             <button type="button" class="pill pill-spam" data-filter-label="spam">垃圾</button>
-            <button type="button" class="pill pill-legit" data-filter-label="legit">正常</button>
+            <button type="button" class="pill pill-promo" data-filter-label="unsolicited-admin">推广</button>
             <button type="button" class="pill pill-gray" data-filter-label="gray">未知/可疑</button>
           </div>
         </div>
@@ -96,7 +100,7 @@
         <!-- 死信队列模式的顶部操作栏 -->
         <div id="stream-dlq-header" class="stream-header" hidden>
           <div class="stream-title-row">
-            <h2>死信与失败任务</h2>
+            <h2>死信队列</h2>
             <button type="button" id="btn-dlq-refresh" class="btn-icon" title="刷新任务">↻</button>
           </div>
           <div class="dlq-actions-bar">
@@ -110,11 +114,12 @@
           </div>
         </div>
 
-        <!-- 提示词/画像模式的通用二级列表头 -->
-        <div id="stream-generic-header" class="stream-header" hidden>
+        <!-- 设置模式的二级列表头 -->
+        <div id="stream-settings-header" class="stream-header" hidden>
           <div class="stream-title-row">
-            <h2 id="stream-generic-title">策略项</h2>
+            <h2>系统设置</h2>
           </div>
+          <p class="stream-subtitle">全局策略、防护画像与运维监控</p>
         </div>
 
         <p id="notice" class="stream-notice" role="status"></p>
@@ -182,15 +187,21 @@
                 </div>
               </div>
 
-              <div class="ai-section">
-                <h4>命中威胁信号与指纹</h4>
+              <details class="ai-section collapsible-section" id="section-signals">
+                <summary class="collapsible-summary">
+                  <span class="collapsible-title">命中威胁信号与指纹</span>
+                  <span class="badge" id="signals-count">0</span>
+                </summary>
                 <div id="signals-list" class="signals-grid"></div>
-              </div>
+              </details>
 
-              <div class="ai-section">
-                <h4>正文提取外链 (<span id="url-count">0</span>)</h4>
+              <details class="ai-section collapsible-section" id="section-urls">
+                <summary class="collapsible-summary">
+                  <span class="collapsible-title">正文提取外链</span>
+                  <span class="badge" id="url-count">0</span>
+                </summary>
                 <div id="urls-list" class="urls-grid"></div>
-              </div>
+              </details>
 
               <div class="ai-section">
                 <h4>附件清单 (<span id="attachment-count">0</span>)</h4>
@@ -310,6 +321,37 @@
               <div class="stat-card stat-legit">
                 <span class="stat-num" id="stat-legit-count">0</span>
                 <span class="stat-desc">正常通行</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 系统服务状态舞台 -->
+        <section id="view-system" class="workspace-view" hidden>
+          <div class="panel-inner">
+            <div class="panel-header">
+              <h2>系统运行与服务健康</h2>
+            </div>
+            <div class="system-grid">
+              <div class="system-card">
+                <span class="sys-label">版本型号</span>
+                <strong class="sys-val">Flytrap v0.3.0</strong>
+              </div>
+              <div class="system-card">
+                <span class="sys-label">当前登录操作员</span>
+                <strong id="sys-user" class="sys-val">admin</strong>
+              </div>
+              <div class="system-card">
+                <span class="sys-label">服务运行角色</span>
+                <strong id="sys-roles" class="sys-val">smtp, worker, api</strong>
+              </div>
+              <div class="system-card">
+                <span class="sys-label">数据库持久化</span>
+                <strong id="sys-db" class="sys-val sys-status-ok">SQLite (WAL 模式)</strong>
+              </div>
+              <div class="system-card">
+                <span class="sys-label">运行健康状态</span>
+                <strong class="sys-val sys-status-ok">● 正常在线 (Healthy)</strong>
               </div>
             </div>
           </div>
