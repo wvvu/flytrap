@@ -154,6 +154,11 @@ test("the api requires a session, hides paths, and pages the list", async () => 
     const text = await client.get(app, "/v1/messages/msg_visible/text");
     assert.equal(text.json().text, "SECRET-BODY-NEEDLE");
 
+    const htmlRes = await client.get(app, "/v1/messages/msg_visible/html");
+    assert.equal(htmlRes.statusCode, 200);
+    assert.equal(typeof htmlRes.json().html, "string");
+    assert.equal(htmlRes.json().subject, "invoice");
+
     await client.csrf(app);
     const reclassify = await client.post(app, "/v1/messages/msg_visible/reclassify", {});
     assert.equal(reclassify.statusCode, 202);
@@ -222,6 +227,77 @@ test("login is limited to five attempts in five minutes", async () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("dlq endpoints list, retry single and retry all dead jobs", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "flytrap-dlq-"));
+  const db = openDatabase(path.join(dir, "db", "mail.db"));
+  migrate(db, migrationsDir());
+  const now = Date.UTC(2026, 8, 21, 12);
+  const app = await buildApi({
+    config: loadConfig({
+      NODE_ENV: "test",
+      ROLES: "api",
+      MAIL_DATA_DIR: dir,
+      ACCEPT_DOMAINS: "example.com",
+      API_PASSWORD: password,
+      SESSION_SECRET: secret,
+      CLASSIFIER: "fake",
+    }),
+    db,
+    codec: gzipCodec(),
+    log: false,
+    now: () => now,
+  });
+  const client = cookieJar();
+  try {
+    await client.csrf(app);
+    const login = await client.post(app, "/v1/login", { username: "admin", password });
+    assert.equal(login.statusCode, 200);
+
+    // Insert dead jobs
+    db.prepare(
+      `INSERT INTO jobs (id, type, message_id, status, attempts, max_attempts, run_after, last_error, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run("job-1", "classify", "msg-1", "dead", 5, 5, now, "openai 503 Service Unavailable", now, now);
+
+    db.prepare(
+      `INSERT INTO jobs (id, type, message_id, status, attempts, max_attempts, run_after, last_error, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run("job-2", "parse", "msg-2", "dead", 5, 5, now, "corrupt body", now, now);
+
+    // List dead jobs
+    const listRes = await client.get(app, "/v1/jobs?status=dead");
+    assert.equal(listRes.statusCode, 200);
+    const list = listRes.json();
+    assert.equal(list.items.length, 2);
+    assert.equal(list.items[0].lastError, "openai 503 Service Unavailable");
+
+    // Retry single job
+    await client.csrf(app);
+    const retryOne = await client.post(app, "/v1/jobs/job-1/retry", {});
+    assert.equal(retryOne.statusCode, 200);
+    assert.deepEqual(retryOne.json(), { ok: true, retried: "job-1" });
+
+    const job1 = db.prepare("SELECT status, attempts, last_error FROM jobs WHERE id = 'job-1'").get() as any;
+    assert.equal(job1.status, "queued");
+    assert.equal(job1.attempts, 0);
+    assert.equal(job1.last_error, null);
+
+    // Retry all dead jobs
+    const retryAll = await client.post(app, "/v1/jobs/retry-all", {});
+    assert.equal(retryAll.statusCode, 200);
+    assert.deepEqual(retryAll.json(), { ok: true, count: 1 });
+
+    const job2 = db.prepare("SELECT status, attempts FROM jobs WHERE id = 'job-2'").get() as any;
+    assert.equal(job2.status, "queued");
+    assert.equal(job2.attempts, 0);
+  } finally {
+    await app.close();
+    db.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 
 function cookieJar() {
   let cookie = "";

@@ -34,10 +34,13 @@ const draftSchema = z.object({
   apiUsername: z.string().min(1).max(128),
   apiPassword: z.string().optional(),
   sessionSecret: z.string().optional(),
-  classifier: z.enum(["openai-compat", "fake"]),
+  classifier: z.enum(["openai-compat", "fake", "gemini"]),
   openaiBaseUrl: z.string().optional(),
   openaiApiKey: z.string().optional(),
   openaiModel: z.string().optional(),
+  geminiApiKeys: z.array(z.string()).default([]),
+  geminiModel: z.string().default("gemini-2.5-flash"),
+  geminiBaseUrl: z.string().optional(),
   promptsDir: z.string().min(1),
   notifyWebhookUrl: z.string().optional(),
   notifyWebhookBearer: z.string().optional(),
@@ -110,6 +113,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     openaiBaseUrl: pickOpt(env, "OPENAI_BASE_URL"),
     openaiApiKey: pickOpt(env, "OPENAI_API_KEY"),
     openaiModel: pickOpt(env, "OPENAI_MODEL"),
+    geminiApiKeys: parseKeys(pickOpt(env, "GEMINI_API_KEYS") ?? pickOpt(env, "GEMINI_API_KEY") ?? ""),
+    geminiModel: pickOpt(env, "GEMINI_MODEL") ?? "gemini-2.5-flash",
+    geminiBaseUrl: pickOpt(env, "GEMINI_BASE_URL"),
     promptsDir: path.resolve(pickOpt(env, "PROMPTS_DIR") ?? defaultPromptsDir()),
     notifyWebhookUrl: pickOpt(env, "NOTIFY_WEBHOOK_URL"),
     notifyWebhookBearer: pickOpt(env, "NOTIFY_WEBHOOK_BEARER"),
@@ -133,6 +139,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   return { ...config, acceptDomainSet: new Set(config.acceptDomains) };
 }
 
+export function parseKeys(raw: string): string[] {
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
 function assertRoleRequirements(config: z.infer<typeof draftSchema>): void {
   const problems: string[] = [];
   const tlsKey = Boolean(config.smtpTlsKeyFile);
@@ -153,6 +166,11 @@ function assertRoleRequirements(config: z.infer<typeof draftSchema>): void {
     if (!config.openaiModel) problems.push("OPENAI_MODEL is required for the openai-compat classifier");
     if (config.openaiBaseUrl && !isHttpUrl(config.openaiBaseUrl)) {
       problems.push("OPENAI_BASE_URL must be an http(s) URL");
+    }
+  }
+  if (config.roles.includes("worker") && config.classifier === "gemini") {
+    if (config.geminiApiKeys.length === 0) {
+      problems.push("GEMINI_API_KEYS (or GEMINI_API_KEY) is required for the gemini classifier");
     }
   }
   if (config.notifyWebhookUrl && !isHttpUrl(config.notifyWebhookUrl)) {

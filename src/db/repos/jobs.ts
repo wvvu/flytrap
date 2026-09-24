@@ -125,3 +125,92 @@ export function backoffMs(attempts: number): number {
   const shift = Math.min(Math.max(attempts, 1), 10);
   return Math.min(1000 * 2 ** shift, 15 * 60 * 1000);
 }
+
+export function retryJob(db: Db, id: string, now: number): boolean {
+  return db.transaction(() => {
+    const job = db.prepare("SELECT id, message_id, status FROM jobs WHERE id = ?").get(id) as
+      | { id: string; message_id: string | null; status: string }
+      | undefined;
+    if (!job) return false;
+    const res = db
+      .prepare(
+        `UPDATE jobs
+         SET status = 'queued', attempts = 0, run_after = ?, locked_at = NULL, locked_by = NULL,
+             last_error = NULL, updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(now, now, id);
+    if (res.changes === 1 && job.message_id) {
+      db.prepare(
+        `UPDATE messages
+         SET status = 'received', error = NULL, updated_at = ?
+         WHERE id = ? AND status = 'error'`,
+      ).run(now, job.message_id);
+    }
+    return res.changes === 1;
+  })();
+}
+
+export function retryAllDeadJobs(db: Db, now: number): number {
+  return db.transaction(() => {
+    const deadJobs = db
+      .prepare(`SELECT id, message_id FROM jobs WHERE status IN ('dead', 'failed')`)
+      .all() as Array<{ id: string; message_id: string | null }>;
+    if (deadJobs.length === 0) return 0;
+
+    const res = db
+      .prepare(
+        `UPDATE jobs
+         SET status = 'queued', attempts = 0, run_after = ?, locked_at = NULL, locked_by = NULL,
+             last_error = NULL, updated_at = ?
+         WHERE status IN ('dead', 'failed')`,
+      )
+      .run(now, now);
+
+    const messageIds = deadJobs.map((j) => j.message_id).filter((mid): mid is string => Boolean(mid));
+    if (messageIds.length > 0) {
+      const placeholders = messageIds.map(() => "?").join(",");
+      db.prepare(
+        `UPDATE messages
+         SET status = 'received', error = NULL, updated_at = ?
+         WHERE id IN (${placeholders}) AND status = 'error'`,
+      ).run(now, ...messageIds);
+    }
+
+    return res.changes;
+  })();
+}
+
+export interface ListJobsOptions {
+  status?: string | null;
+  limit?: number;
+}
+
+export interface JobDetailRow extends JobRow {
+  message_subject: string | null;
+}
+
+export function listJobsWithDetails(db: Db, options: ListJobsOptions = {}): JobDetailRow[] {
+  const limit = Math.min(Math.max(options.limit ?? 100, 1), 500);
+  if (options.status && options.status !== "all") {
+    return db
+      .prepare(
+        `SELECT j.*, m.subject as message_subject
+         FROM jobs j
+         LEFT JOIN messages m ON j.message_id = m.id
+         WHERE j.status = ?
+         ORDER BY j.created_at DESC
+         LIMIT ?`,
+      )
+      .all(options.status, limit) as JobDetailRow[];
+  }
+  return db
+    .prepare(
+      `SELECT j.*, m.subject as message_subject
+       FROM jobs j
+       LEFT JOIN messages m ON j.message_id = m.id
+       ORDER BY j.created_at DESC
+       LIMIT ?`,
+    )
+    .all(limit) as JobDetailRow[];
+}

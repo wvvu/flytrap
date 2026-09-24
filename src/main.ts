@@ -5,6 +5,7 @@ import { migrate } from "./db/migrate.js";
 import { createLogger } from "./log.js";
 import { ensureDataDirs, migrationsDir } from "./paths.js";
 import { fakeClassifier } from "./ai/classifier.js";
+import { createGeminiClassifier } from "./ai/gemini.js";
 import { createOpenAiClassifier } from "./ai/openai-compat.js";
 import { readPrompt } from "./ai/prompt.js";
 import { createMailauthAuthenticator } from "./mail/auth.js";
@@ -120,11 +121,17 @@ async function boot(stops: Array<() => Promise<void>>): Promise<void> {
     const classifier =
       config.classifier === "fake"
         ? fakeClassifier()
-        : createOpenAiClassifier({
-            baseUrl: config.openaiBaseUrl ?? "",
-            apiKey: config.openaiApiKey ?? "",
-            model: config.openaiModel ?? "",
-          });
+        : config.classifier === "gemini"
+          ? createGeminiClassifier({
+              apiKeys: config.geminiApiKeys,
+              model: config.geminiModel,
+              baseUrl: config.geminiBaseUrl,
+            })
+          : createOpenAiClassifier({
+              baseUrl: config.openaiBaseUrl ?? "",
+              apiKey: config.openaiApiKey ?? "",
+              model: config.openaiModel ?? "",
+            });
     const notifiers: Notifier[] = [];
     if (config.notifyWebhookUrl) {
       notifiers.push(createWebhookNotifier({ url: config.notifyWebhookUrl, bearer: config.notifyWebhookBearer }));

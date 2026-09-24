@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolveInside } from "../paths.js";
 import { splitAddress } from "../smtp/policy.js";
 
@@ -46,6 +46,28 @@ export function readPrompt(dir: string, id = "classify-v1"): string {
   } catch {
     throw new Error(`prompt ${id} is missing`);
   }
+}
+
+export function listPrompts(dir: string): Array<{ id: string; name: string }> {
+  try {
+    const files = readdirSync(dir);
+    return files
+      .filter((f) => f.endsWith(".txt"))
+      .map((f) => {
+        const id = f.replace(/\.txt$/, "");
+        return { id, name: id };
+      });
+  } catch {
+    return [{ id: "classify-v1", name: "classify-v1" }];
+  }
+}
+
+export function savePrompt(dir: string, id: string, content: string): void {
+  if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
+    throw new Error("invalid prompt id");
+  }
+  const file = resolveInside(dir, `${id}.txt`);
+  writeFileSync(file, content, "utf8");
 }
 
 export function buildUserMessage(facts: ClassifyFacts): string {

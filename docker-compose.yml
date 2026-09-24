@@ -12,24 +12,29 @@ name: flytrap
 services:
   flytrap:
     build: .
-    image: flytrap:0.2.0
+    image: flytrap:0.3.0
     init: true
     restart: unless-stopped
     env_file:
       - path: .env
         required: false
     environment:
-      NODE_ENV: production
+      NODE_ENV: ${NODE_ENV:-production}
       MAIL_DATA_DIR: /srv/mail/data
       API_HOST: 0.0.0.0
       API_PORT: "8080"
       SMTP_HOST: 0.0.0.0
       SMTP_PORT: "2525"
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
     ports:
       - "2525:2525"
-      - "127.0.0.1:8080:8080"
+      - "8080:8080"
     volumes:
       - mail-data:/srv/mail/data
+      - ./src/api/public:/app/dist/api/public:ro
     healthcheck:
       test: ["CMD", "node", "scripts/healthcheck.mjs"]
       interval: 30s

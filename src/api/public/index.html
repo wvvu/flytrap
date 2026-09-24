@@ -1,50 +1,322 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Flytrap</title>
+    <title>Flytrap — 邮件安全与威胁研判平台</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
     <link rel="stylesheet" href="/app.css">
   </head>
   <body>
-    <header class="top">
-      <div>
-        <p class="mark">Flytrap</p>
-        <h1>收件</h1>
-      </div>
-      <button type="button" id="logout" hidden>退出</button>
-    </header>
-    <main>
-      <section id="login">
+    <!-- 登录视图 -->
+    <div id="login" class="login-wrapper">
+      <div class="login-card">
+        <div class="brand">
+          <div class="brand-badge">⚡</div>
+          <h2>Flytrap</h2>
+          <p class="brand-sub">前后端一体邮件管理与威胁分析平台</p>
+        </div>
         <form id="login-form">
-          <label>用户名
-            <input id="username" name="username" autocomplete="username" maxlength="128" required>
-          </label>
-          <label>口令
-            <input id="password" name="password" type="password" autocomplete="current-password" maxlength="512" required>
-          </label>
-          <button type="submit">登录</button>
-          <p id="login-error" role="alert"></p>
+          <div class="form-group">
+            <label for="username">管理账号</label>
+            <input id="username" name="username" autocomplete="username" maxlength="128" placeholder="admin" required autofocus>
+          </div>
+          <div class="form-group">
+            <label for="password">访问口令</label>
+            <input id="password" name="password" type="password" autocomplete="current-password" maxlength="512" placeholder="••••••••" required>
+          </div>
+          <button type="submit" id="btn-login" class="btn-primary">进入控制台</button>
+          <p id="login-error" class="error-text" role="alert"></p>
         </form>
-      </section>
-      <section id="mail" hidden>
-        <form id="filters" class="filters">
-          <label>标签
-            <select id="label"></select>
-          </label>
-          <label>状态
-            <select id="status"></select>
-          </label>
-          <label>搜索
-            <input id="q" type="search" maxlength="200" placeholder="主题、发件人、Message-ID">
-          </label>
-          <button type="submit">筛选</button>
-        </form>
-        <p id="notice" role="status"></p>
-        <div id="list"></div>
-        <button type="button" id="more" hidden>更多</button>
-      </section>
-    </main>
+      </div>
+    </div>
+
+    <!-- 已经登录的主工作区 (三列架构) -->
+    <div id="app" class="app-shell" hidden>
+      <!-- 第一列: 全局主功能轨 (Icon / Global Rail) -->
+      <nav class="rail" aria-label="全局导航">
+        <div class="rail-top">
+          <div class="logo-mark" title="Flytrap v0.3">FT</div>
+          <button type="button" class="rail-btn active" id="nav-inbox" title="收件箱 (I)">
+            <span class="icon">📬</span>
+            <span class="label">收件箱</span>
+            <span class="badge" id="badge-inbox" hidden>0</span>
+          </button>
+          <button type="button" class="rail-btn" id="nav-dlq" title="死信队列 (D)">
+            <span class="icon">💀</span>
+            <span class="label">死信队列</span>
+            <span class="badge badge-alert" id="badge-dlq" hidden>0</span>
+          </button>
+          <button type="button" class="rail-btn" id="nav-prompts" title="AI 策略与模型 (P)">
+            <span class="icon">🤖</span>
+            <span class="label">AI 策略</span>
+          </button>
+          <button type="button" class="rail-btn" id="nav-mailboxes" title="收件画像 (M)">
+            <span class="icon">🛡️</span>
+            <span class="label">收件画像</span>
+          </button>
+          <button type="button" class="rail-btn" id="nav-stats" title="统计分析 (S)">
+            <span class="icon">📊</span>
+            <span class="label">统计</span>
+          </button>
+        </div>
+        <div class="rail-bottom">
+          <button type="button" class="rail-btn-sm" id="btn-theme" title="切换深浅主题">
+            <span class="icon" id="theme-icon">☀️</span>
+          </button>
+          <button type="button" class="rail-btn-sm" id="logout" title="退出登录">
+            <span class="icon">🚪</span>
+          </button>
+        </div>
+      </nav>
+
+      <!-- 第二列: 分流与列表检索 (Contextual Stream) -->
+      <aside class="stream">
+        <!-- 收件箱模式的顶部过滤栏 -->
+        <div id="stream-inbox-header" class="stream-header">
+          <div class="stream-title-row">
+            <h2 id="stream-title">所有收件</h2>
+            <button type="button" id="btn-refresh" class="btn-icon" title="刷新列表 (R)">↻</button>
+          </div>
+          <form id="filters" class="search-box">
+            <input id="q" type="search" maxlength="200" placeholder="搜索主题、发件人、Message-ID...">
+            <input id="label" type="hidden" value="">
+            <input id="status" type="hidden" value="">
+          </form>
+          <div class="pills-scroll" id="label-pills">
+            <button type="button" class="pill active" data-filter-label="">全部</button>
+            <button type="button" class="pill pill-phish" data-filter-label="phish">钓鱼</button>
+            <button type="button" class="pill pill-malware" data-filter-label="malware">恶意</button>
+            <button type="button" class="pill pill-spam" data-filter-label="spam">垃圾</button>
+            <button type="button" class="pill pill-legit" data-filter-label="legit">正常</button>
+            <button type="button" class="pill pill-gray" data-filter-label="gray">未知/可疑</button>
+          </div>
+        </div>
+
+        <!-- 死信队列模式的顶部操作栏 -->
+        <div id="stream-dlq-header" class="stream-header" hidden>
+          <div class="stream-title-row">
+            <h2>死信与失败任务</h2>
+            <button type="button" id="btn-dlq-refresh" class="btn-icon" title="刷新任务">↻</button>
+          </div>
+          <div class="dlq-actions-bar">
+            <button type="button" id="btn-retry-all" class="btn-action-primary">⚡ 一键救回全部死信</button>
+          </div>
+          <div class="pills-scroll" id="dlq-pills">
+            <button type="button" class="pill active" data-dlq-status="">全部</button>
+            <button type="button" class="pill" data-dlq-status="dead">死信 (Dead)</button>
+            <button type="button" class="pill" data-dlq-status="failed">失败中</button>
+            <button type="button" class="pill" data-dlq-status="queued">排队中</button>
+          </div>
+        </div>
+
+        <!-- 提示词/画像模式的通用二级列表头 -->
+        <div id="stream-generic-header" class="stream-header" hidden>
+          <div class="stream-title-row">
+            <h2 id="stream-generic-title">策略项</h2>
+          </div>
+        </div>
+
+        <p id="notice" class="stream-notice" role="status"></p>
+
+        <!-- 列表容器 -->
+        <div id="list" class="item-list"></div>
+        <button type="button" id="more" class="btn-more" hidden>加载更多历史</button>
+      </aside>
+
+      <!-- 第三列: 详情与研判主舞台 (Inspector & Workspace) -->
+      <main class="workspace">
+        <!-- 邮件详情舞台 -->
+        <section id="view-mail" class="workspace-view">
+          <div id="mail-empty" class="empty-state">
+            <span class="empty-icon">📨</span>
+            <h3>选择左侧邮件进行全维度研判</h3>
+            <p>支持原生沙箱 HTML 预览、AI 威胁提取、外链审计与 RFC822 原文审查</p>
+          </div>
+
+          <article id="mail-detail" class="detail-card" hidden>
+            <!-- 邮件头信息 -->
+            <header class="detail-header">
+              <div class="detail-title-line">
+                <h1 id="detail-subject">(无主题)</h1>
+                <div class="detail-actions">
+                  <button type="button" id="btn-reclassify" class="btn-sm">重分类</button>
+                  <a id="btn-download-eml" class="btn-sm btn-link" target="_blank" download>下载 EML</a>
+                </div>
+              </div>
+              <div class="meta-grid">
+                <div class="meta-item"><span class="meta-label">发件人：</span><span id="detail-from" class="meta-val"></span></div>
+                <div class="meta-item"><span class="meta-label">收件人：</span><span id="detail-to" class="meta-val"></span></div>
+                <div class="meta-item"><span class="meta-label">时间：</span><span id="detail-time" class="meta-val"></span></div>
+                <div class="meta-item"><span class="meta-label">威胁研判：</span><span id="detail-verdict" class="verdict-tag">未分类</span></div>
+              </div>
+              <!-- Infomaniak 风格安全提示栏 -->
+              <div id="security-banner" class="security-banner">
+                <span class="sec-icon">🛡️</span>
+                <span class="sec-text">安全沙箱已拦截脚本执行与外部追踪图片。</span>
+                <button type="button" id="btn-load-images" class="btn-sec-action">允许加载外链图片</button>
+              </div>
+            </header>
+
+            <!-- 详情 Tab 切换栏 -->
+            <div class="tab-bar">
+              <button type="button" class="tab-btn active" data-tab="ai">🧠 AI 智能研判</button>
+              <button type="button" class="tab-btn" data-tab="html">🌐 安全 HTML 预览</button>
+              <button type="button" class="tab-btn" data-tab="text">📄 纯文本正文</button>
+              <button type="button" class="tab-btn" data-tab="raw">🔍 RFC822 原文与鉴权</button>
+            </div>
+
+            <!-- Tab 1: AI 研判视图 -->
+            <div id="panel-ai" class="tab-panel active">
+              <div class="ai-verdict-box">
+                <div class="verdict-score-row">
+                  <span class="score-label">模型判别置信度</span>
+                  <div class="progress-bar-wrap">
+                    <div id="verdict-bar" class="progress-bar-fill" style="width: 0%"></div>
+                  </div>
+                  <span id="verdict-percent" class="score-num">0%</span>
+                </div>
+                <div class="summary-card">
+                  <p class="summary-label">研判结论摘要</p>
+                  <p id="detail-summary" class="summary-text"></p>
+                </div>
+              </div>
+
+              <div class="ai-section">
+                <h4>命中威胁信号与指纹</h4>
+                <div id="signals-list" class="signals-grid"></div>
+              </div>
+
+              <div class="ai-section">
+                <h4>正文提取外链 (<span id="url-count">0</span>)</h4>
+                <div id="urls-list" class="urls-grid"></div>
+              </div>
+
+              <div class="ai-section">
+                <h4>附件清单 (<span id="attachment-count">0</span>)</h4>
+                <div id="attachments-list" class="attachments-grid"></div>
+              </div>
+            </div>
+
+            <!-- Tab 2: HTML 沙箱预览视图 -->
+            <div id="panel-html" class="tab-panel">
+              <div class="html-container">
+                <iframe id="mail-sandbox" sandbox="allow-same-origin" title="邮件 HTML 安全沙箱"></iframe>
+              </div>
+            </div>
+
+            <!-- Tab 3: 纯文本正文视图 -->
+            <div id="panel-text" class="tab-panel">
+              <pre id="plain-text-body" class="code-block"></pre>
+            </div>
+
+            <!-- Tab 4: RFC822 原文视图 -->
+            <div id="panel-raw" class="tab-panel">
+              <div class="auth-box">
+                <h4>邮件来源认证与投递元数据</h4>
+                <div id="auth-chips" class="auth-chips-row"></div>
+              </div>
+              <h4>RFC822 Header 与信头原文</h4>
+              <pre id="raw-headers" class="code-block"></pre>
+            </div>
+          </article>
+        </section>
+
+        <!-- 死信队列详情舞台 -->
+        <section id="view-dlq" class="workspace-view" hidden>
+          <div class="panel-inner">
+            <div class="panel-header">
+              <h2>任务详情与错误堆栈</h2>
+              <button type="button" id="btn-dlq-single-retry" class="btn-primary" hidden>立即重试该任务</button>
+            </div>
+            <div id="dlq-detail-content" class="detail-card">
+              <p class="empty-hint">请在左侧列表中点击选择一条任务查看详细堆栈。</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Prompt 策略与模型管理舞台 -->
+        <section id="view-prompts" class="workspace-view" hidden>
+          <div class="panel-inner">
+            <div class="panel-header">
+              <h2>AI 提示词策略与 Key 池健康度</h2>
+              <button type="button" id="btn-save-prompt" class="btn-primary">保存提示词变更</button>
+            </div>
+            <div class="prompt-meta-row">
+              <div class="ai-status-card" id="ai-status-card">
+                <span>当前模型: <strong id="ai-model-name">-</strong></span>
+                <span>通道模式: <strong id="ai-provider-name">-</strong></span>
+                <span>有效 Key 数: <strong id="ai-key-count">0</strong></span>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="prompt-editor">系统研判提示词 (System Prompt)</label>
+              <textarea id="prompt-editor" rows="18" class="code-editor"></textarea>
+            </div>
+          </div>
+        </section>
+
+        <!-- 收件画像舞台 -->
+        <section id="view-mailboxes" class="workspace-view" hidden>
+          <div class="panel-inner">
+            <div class="panel-header">
+              <h2>收件邮箱画像与防线</h2>
+            </div>
+            <form id="mailbox-form" class="inline-form">
+              <input id="mb-domain" placeholder="域名 (如 example.com)" required>
+              <input id="mb-localpart" placeholder="前缀 (如 admin / canary)" required>
+              <input id="mb-notes" placeholder="用途备注 (如 探针诱饵 / 关键业务)">
+              <button type="submit" class="btn-primary">添加/更新画像</button>
+            </form>
+            <div id="mailboxes-table-wrap">
+              <table id="mailboxes-table" class="data-table">
+                <thead>
+                  <tr>
+                    <th>邮箱地址</th>
+                    <th>首见时间</th>
+                    <th>末见时间</th>
+                    <th>备注属性</th>
+                  </tr>
+                </thead>
+                <tbody id="mailboxes-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- 统计舞台 -->
+        <section id="view-stats" class="workspace-view" hidden>
+          <div class="panel-inner">
+            <div class="panel-header">
+              <h2>统计报表与态势</h2>
+            </div>
+            <div class="stats-cards-grid">
+              <div class="stat-card">
+                <span class="stat-num" id="stat-total-count">0</span>
+                <span class="stat-desc">捕获邮件总数</span>
+              </div>
+              <div class="stat-card stat-phish">
+                <span class="stat-num" id="stat-phish-count">0</span>
+                <span class="stat-desc">钓鱼邮件</span>
+              </div>
+              <div class="stat-card stat-malware">
+                <span class="stat-num" id="stat-malware-count">0</span>
+                <span class="stat-desc">恶意威胁</span>
+              </div>
+              <div class="stat-card stat-spam">
+                <span class="stat-num" id="stat-spam-count">0</span>
+                <span class="stat-desc">垃圾邮件</span>
+              </div>
+              <div class="stat-card stat-legit">
+                <span class="stat-num" id="stat-legit-count">0</span>
+                <span class="stat-desc">正常通行</span>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
     <script src="/app.js"></script>
   </body>
 </html>

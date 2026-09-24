@@ -8,12 +8,14 @@ import session from "@fastify/session";
 import Fastify, { type FastifyBaseLogger, type FastifyInstance, type FastifyRequest, type FastifyServerOptions } from "fastify";
 import { z } from "zod";
 import { LABELS } from "../ai/types.js";
+import { listPrompts, readPrompt, savePrompt } from "../ai/prompt.js";
 import type { Config } from "../config.js";
 import type { Codec } from "../compress.js";
 import type { Db } from "../db/index.js";
+import PostalMime from "postal-mime";
 import { findAttachment, listMessageAttachments } from "../db/repos/attachments.js";
 import { writeAudit } from "../db/repos/audit.js";
-import { enqueueJob, hasOpenJob } from "../db/repos/jobs.js";
+import { enqueueJob, hasOpenJob, listJobsWithDetails, retryAllDeadJobs, retryJob } from "../db/repos/jobs.js";
 import { listMailboxHistory, upsertMailboxHistory } from "../db/repos/mailbox-history.js";
 import { getMessage, listMessages } from "../db/repos/messages.js";
 import { sha256 } from "../hash.js";
@@ -171,6 +173,19 @@ export async function buildApi(options: ApiOptions): Promise<FastifyInstance> {
     return { text };
   });
 
+  app.get("/v1/messages/:id/html", async (request) => {
+    const message = requireMessage(db, messageId(request));
+    let bytes: Buffer;
+    try {
+      bytes = await readRaw(config.mailDataDir, message.raw_path, codec, message.sha256);
+    } catch (err) {
+      if (err instanceof PathEscapeError) throw new HttpError(404, "not_found");
+      throw new HttpError(404, "not_found");
+    }
+    const email = await PostalMime.parse(bytes);
+    return { html: email.html ?? "", subject: email.subject ?? "" };
+  });
+
   app.get("/v1/messages/:id/raw", async (request, reply) => {
     const message = requireMessage(db, messageId(request));
     let bytes: Buffer;
@@ -218,35 +233,83 @@ export async function buildApi(options: ApiOptions): Promise<FastifyInstance> {
       .send(bytes);
   });
 
-  app.get("/v1/jobs", async () => {
-    const rows = db
-      .prepare(
-        `SELECT id, type, message_id, status, attempts, max_attempts, run_after, last_error, created_at
-         FROM jobs ORDER BY created_at DESC LIMIT 200`,
-      )
-      .all() as Array<{
-      id: string;
-      type: string;
-      message_id: string | null;
-      status: string;
-      attempts: number;
-      max_attempts: number;
-      run_after: number;
-      last_error: string | null;
-      created_at: number;
-    }>;
+  app.get("/v1/jobs", async (request) => {
+    const query = request.query as Record<string, unknown>;
+    const status = optionalString(query.status);
+    const limit = typeof query.limit === "string" ? Number.parseInt(query.limit, 10) : undefined;
+    const rows = listJobsWithDetails(db, { status, limit });
     return {
       items: rows.map((row) => ({
         id: row.id,
         type: row.type,
         messageId: row.message_id,
+        messageSubject: row.message_subject,
         status: row.status,
         attempts: row.attempts,
         maxAttempts: row.max_attempts,
         runAfter: iso(row.run_after),
-        lastError: publicError(row.last_error),
+        lastError: row.last_error,
         createdAt: iso(row.created_at),
+        updatedAt: iso(row.updated_at),
       })),
+    };
+  });
+
+  app.post("/v1/jobs/:id/retry", async (request, reply) => {
+    const params = request.params as Record<string, string>;
+    const id = params.id;
+    if (!id) throw new HttpError(400);
+    const ok = retryJob(db, id, now());
+    if (!ok) throw new HttpError(404, "not_found");
+    writeAudit(db, { id: ulid(), at: now(), actor: request.session.user ?? "unknown", action: "retry_job", target: id });
+    return reply.send({ ok: true, retried: id });
+  });
+
+  app.post("/v1/jobs/retry-all", async (request, reply) => {
+    const count = retryAllDeadJobs(db, now());
+    writeAudit(db, { id: ulid(), at: now(), actor: request.session.user ?? "unknown", action: "retry_all_dead", detail: `count=${count}` });
+    return reply.send({ ok: true, count });
+  });
+
+  app.get("/v1/prompts", async () => {
+    const list = listPrompts(config.promptsDir);
+    return {
+      items: list.map((item) => ({
+        id: item.id,
+        name: item.name,
+      })),
+      defaultPromptId: "classify-v1",
+    };
+  });
+
+  app.get("/v1/prompts/:id", async (request) => {
+    const params = request.params as Record<string, string>;
+    const id = params.id;
+    if (!id || !/^[a-zA-Z0-9_-]+$/.test(id)) throw new HttpError(400);
+    try {
+      const content = readPrompt(config.promptsDir, id);
+      return { id, content };
+    } catch {
+      throw new HttpError(404, "not_found");
+    }
+  });
+
+  app.put("/v1/prompts/:id", async (request, reply) => {
+    const params = request.params as Record<string, string>;
+    const id = params.id;
+    if (!id || !/^[a-zA-Z0-9_-]+$/.test(id)) throw new HttpError(400);
+    const body = request.body as { content?: string };
+    if (!body || typeof body.content !== "string") throw new HttpError(400);
+    savePrompt(config.promptsDir, id, body.content);
+    writeAudit(db, { id: ulid(), at: now(), actor: request.session.user ?? "unknown", action: "prompt_update", target: id });
+    return reply.send({ ok: true, id });
+  });
+
+  app.get("/v1/ai/status", async () => {
+    return {
+      classifier: config.classifier,
+      model: config.classifier === "gemini" ? config.geminiModel : config.classifier === "openai-compat" ? config.openaiModel : "fake",
+      keyCount: config.classifier === "gemini" ? config.geminiApiKeys.length : config.openaiApiKey ? 1 : 0,
     };
   });
 
