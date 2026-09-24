@@ -49,3 +49,7 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# Internal documentation & architecture specs
+docs/
+architecture/
